@@ -14,6 +14,8 @@ def compute_heading(detection):
     if detection.pose_R is None:
         return None
 
+    R = detection.pose_R
+
     heading = math.degrees(math.atan2(R[1, 0], R[0, 0]))
 
     return normalize_angle(heading)
