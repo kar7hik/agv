@@ -29,9 +29,14 @@ class Viewer:
                 2,
             )
 
+            if detection.yaw is None:
+                yaw_text = "Yaw: N/A"
+            else:
+                yaw_text = f"Yaw: {detection.yaw:.1f} deg"
+
             cv2.putText(
                 frame,
-                f"Yaw : {detection.yaw:.1f}",
+                yaw_text,
                 (corners[0][0], corners[0][1] + 20),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.55,
