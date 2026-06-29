@@ -4,6 +4,7 @@ import config
 from camera import Camera
 from detector import AprilTagDetector
 from viewer import Viewer
+import geometry
 
 
 def main():
