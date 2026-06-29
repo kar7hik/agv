@@ -51,9 +51,9 @@ class Viewer:
 
             # Draw Lateral Offset
             if detection.lateral is None:
-                lateral_text = "Yaw: N/A"
+                lateral_text = "Lateral: N/A"
             else:
-                lateral_text = f"Yaw: {detection.lateral:.3f} m"
+                lateral_text = f"Lateral: {detection.lateral:.3f} m"
 
             cv2.putText(
                 frame,
