@@ -20,5 +20,5 @@ class AprilTagDetector:
             gray,
             estimate_tag_pose=True,
             camera_params=config.CAMERA_PARAMS,
-            tag_size=config.TAG_SIZE,
+            tag_size=config.TAG_SIZE_M,
         )
