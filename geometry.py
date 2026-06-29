@@ -10,7 +10,7 @@ def normalize_angle(angle):
     return angle
 
 
-def compute_heading(detections):
+def compute_heading(detection):
     if detection.pose_R is None:
         return None
 
