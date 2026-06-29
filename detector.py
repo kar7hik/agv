@@ -7,6 +7,6 @@ class AprilTagDetector:
             families="tag36h11", nthreads=4, quad_decimate=1.0, quad_sigma=0.0
         )
 
-    def detect(self, image):
-        return self.detector.detect(image)
+    def detect(self, frame):
+        return self.detector.detect(frame)
     
