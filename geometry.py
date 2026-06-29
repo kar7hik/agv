@@ -28,15 +28,15 @@ def compute_lateral(detection):
     return float(detection.pose_t[0][0])
 
 
-def compute_distance(detection):
+def compute_forward(detection):
     if detection.pose_t is None:
         return None
 
-    return float(detection.pose_t[2][0])
+    return float(detection.pose_t[1][0])
 
 
 def update(detections):
     for detection in detections:
         detection.heading = compute_heading(detection)
         detection.lateral = compute_lateral(detection)
-        detection.distance = compute_distance(detection)
+        detection.forward = compute_forward(detection)

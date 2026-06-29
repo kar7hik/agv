@@ -65,15 +65,15 @@ class Viewer:
                 2,
             )
 
-            # Draw Distance
-            if detection.distance is None:
-                distance_text = "Distance: N/A"
+            # Draw Forward Offset
+            if detection.forward is None:
+                forward_text = "Forward: N/A"
             else:
-                distance_text = f"Distance: {detection.distance:.3f} m"
+                forward_text = f"Forward: {detection.forward:.3f} m"
 
             cv2.putText(
                 frame,
-                distance_text,
+                forward_text,
                 (x, y + 60),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
