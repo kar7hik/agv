@@ -17,7 +17,7 @@ def main():
         while True:
             frame = camera.get_frame()
             detections = detector.detect(frame)
-            geometry = update(detections)
+            geometry.update(detections)
             frame = viewer.draw(frame, detections)
             viewer.show(frame)
 
