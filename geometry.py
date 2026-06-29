@@ -25,14 +25,14 @@ def compute_lateral(detection):
     if detection.pose_t is None:
         return None
 
-    return float(detection.pose_t[0][1])
+    return float(detection.pose_t[0][0])
 
 
 def compute_distance(detection):
     if detection.pose_t is None:
         return None
 
-    return float(detection.pose_t[0][2])
+    return float(detection.pose_t[2][0])
 
 
 def update(detections):
