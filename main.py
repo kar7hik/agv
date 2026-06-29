@@ -3,13 +3,13 @@ import cv2
 import config
 from camera import Camera
 from detector import AprilTagDetector
-from visualization import 
+from visualization import Visualization
 
 
 def main():
     camera = Camera()
     detector = AprilTagDetector()
-    visualization = Visulaization()
+    visualization = Visualization()
     camera.start()
 
     try:
