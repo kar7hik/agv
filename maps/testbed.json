@@ -1,0 +1,63 @@
+{
+    "version": 1,
+
+    "name": "AGV Testbed",
+
+    "grid": {
+        "rows": 5,
+        "columns": 4,
+        "landmark_spacing_m": 0.500,
+        "helper_spacing_m": 0.015,
+        "auto_neighbors": true
+    },
+
+    "landmarks": [
+        {
+            "id": 0,
+            "name": "Dock",
+
+            "type": "dock",
+
+            "row": -1,
+            "column": 0,
+
+            "tags": {
+                "north_west": 268,
+                "north":      261,
+                "north_east": 262,
+
+                "west":       267,
+                "center":       0,
+                "east":       263,
+
+                "south_west": 266,
+                "south":      265,
+                "south_east": 264
+            }
+        },
+
+        {
+            "id": 1,
+            "name": "Landmark 1",
+
+            "type": "normal",
+
+            "row": 0,
+            "column": 0,
+
+            "tags": {
+                "north_west": 108,
+                "north":      101,
+                "north_east": 102,
+
+                "west":       107,
+                "center":       1,
+                "east":       103,
+
+                "south_west": 106,
+                "south":      105,
+                "south_east": 104
+            }
+        }
+    ]
+}
