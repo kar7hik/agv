@@ -42,10 +42,10 @@ class Viewer:
             cv2.putText(
                 frame,
                 heading_text,
-                (x, y + 10),
+                (x, y + 15),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.55,
-                (255, 0, 0),
+                (0, 125, 125),
                 2,
             )
 
@@ -58,7 +58,7 @@ class Viewer:
             cv2.putText(
                 frame,
                 lateral_text,
-                (x, y + 20),
+                (x, y + 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.55,
                 (0, 255, 255),
@@ -74,7 +74,7 @@ class Viewer:
             cv2.putText(
                 frame,
                 distance_text,
-                (x, y + 30),
+                (x, y + 45),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.55,
                 (255, 0, 255),
