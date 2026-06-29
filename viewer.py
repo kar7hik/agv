@@ -28,7 +28,7 @@ class Viewer:
                 f"ID: {detection.tag_id}",
                 (x, y - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
+                0.5,
                 (0, 255, 0),
                 2,
             )
@@ -42,10 +42,10 @@ class Viewer:
             cv2.putText(
                 frame,
                 heading_text,
-                (x, y + 15),
+                (x, y + 20),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                (0, 125, 125),
+                0.5,
+                (255, 255, 255),
                 2,
             )
 
@@ -58,9 +58,9 @@ class Viewer:
             cv2.putText(
                 frame,
                 lateral_text,
-                (x, y + 30),
+                (x, y + 40),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
+                0.5,
                 (0, 255, 255),
                 2,
             )
@@ -74,9 +74,9 @@ class Viewer:
             cv2.putText(
                 frame,
                 distance_text,
-                (x, y + 45),
+                (x, y + 60),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
+                0.5,
                 (255, 0, 255),
                 2,
             )
