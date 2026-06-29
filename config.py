@@ -1,3 +1,14 @@
-FRAME WIDTH = 640
-FRAME HEIGHT = 480
+FRAME_WIDTH = 640
+FRAME_HEIGHT = 480
 
+# Camera Intrinsic Matrix
+# K = [fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0]
+FX = 615.0
+FY = 615.0
+CX = FRAME_WIDTH / 2.0
+CY = FRAME_HEIGHT / 2.0
+
+TAG_SIZE_M = 0.01
+
+CAMERA_PARAM = (FX, FY, CX, CY)
+APRILTAG_FAMILY = "tag36h11"
