@@ -8,8 +8,8 @@ class Camera:
         self.camera = Picamera2()
         self.camera.set_controls(
             {
-                "AwbMode": "False",
-                "ExposureTime": 8000,
+                "AwbMode": False,
+                "ExposureTime": 5000,
                 "AnalogueGain": 1.0,
                 "AwbEnable": False,
                 "ColourGains": (1.7, 1.7),
