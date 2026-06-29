@@ -31,4 +31,6 @@ def main():
         camera.release()
         cv2.destroyAllWindows()
         
-if 
+if __name__ == "__main__":
+    main()
+    
