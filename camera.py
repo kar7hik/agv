@@ -6,6 +6,15 @@ class Camera:
         self.width = width
         self.height = height
         self.camera = Picamera2()
+        self.camera.set_controls(
+            {
+                "AwbMode": "False",
+                "ExposureTime": 8000,
+                "AnalogueGain": 1.0,
+                "AwbEnable": False,
+                "ColourGains": (1.7, 1.7),
+            }
+        )
 
     def start(self):
         config = self.camera.create_preview_configuration(
