@@ -2,8 +2,8 @@ import config
 import camera
 import detector
 
-camera = Camera()
-detector = AprilTagDetector()
+camera = camera.Camera()
+detector = detector.AprilTagDetector()
 camera.start()
 
 while True:
