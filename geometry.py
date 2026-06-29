@@ -10,39 +10,31 @@ def normalize_angle(angle):
     return angle
 
 
-def compute_yaw(detection):
+def compute_heading(detections):
     if detection.pose_R is None:
         return None
 
-    # print("pose_R:")
-    # print(detection.pose_R)
-    R = detection.pose_R
-    yaw = math.degrees(math.atan2(R[1, 0], R[0, 0]))
+    heading = math.degrees(math.atan2(R[1, 0], R[0, 0]))
 
-    return normalize_angle(yaw)
+    return normalize_angle(heading)
 
 
-def compute_x_offset(detection):
+def compute_lateral(detection):
     if detection.pose_t is None:
         return None
 
-    return float(detection.pose_t[0][0])
+    return float(detection.pose_t[0][1])
 
 
-def rotation_matrix_to_euler(R):
-    roll = math.degrees(math.atan2(R[2, 1], R[2, 2]))
-    pitch = math.degrees(
-        math.atan2(-R[2, 0], math.sqrt(R[2, 1] * R[2, 1] + R[2, 2] * R[2, 2]))
-    )
-    yaw = math.degrees(math.atan2(R[1, 0], R[0, 0]))
+def compute_distance(detection):
+    if detection.pose_t is None:
+        return None
 
-    return roll, pitch, yaw
+    return float(detection.pose_t[0][2])
 
 
 def update(detections):
     for detection in detections:
-        detection.yaw = compute_yaw(detection)
-        detection.x_offset = compute_x_offset(detection)
-
-        roll, pitch, yaw = rotation_matrix_to_euler(detection.pose_R)
-        print(f"Roll: {roll:6.2f}, Pitch: {pitch:6.2f}, Yaw: {yaw:6.2f}")
+        detection.heading = compute_heading(detection)
+        detection.lateral = compute_lateral(detection)
+        detection.distance = compute_distance(detection)
