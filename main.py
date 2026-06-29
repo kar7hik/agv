@@ -3,7 +3,8 @@ import cv2
 import config
 from camera import Camera
 from detector import AprilTagDetector
-from visualization import Visulaization
+from visualization import 
+
 
 def main():
     camera = Camera()

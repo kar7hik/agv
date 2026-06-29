@@ -1,6 +1,6 @@
 import cv2
 
-class Visulaization:
+class Visualization:
     def __init__(self):
         self.window_name = "AprilTag Detection"
         
@@ -31,4 +31,7 @@ class Visulaization:
         cv2.imshow(self.window_name, cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         
     def close(self):
-        
+        cv2.destroyAllWindows()
+
+
+
