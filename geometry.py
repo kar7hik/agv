@@ -11,7 +11,7 @@ def compute_yaw(detection):
     dx = top_mid_x - center[0]
     dy = center[1] - top_mid_y
 
-    yaw = math.degrees(math.atan2(dy, dx))
+    yaw = math.degrees(math.atan2(dx, dy))
 
     return yaw
 

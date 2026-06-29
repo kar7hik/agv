@@ -51,7 +51,7 @@ class Viewer:
         return frame
 
     def show(self, frame):
-        cv2.imshow(self.window_name, cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        cv2.imshow(self.window_name, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
 
     def close(self):
         cv2.destroyAllWindows()
