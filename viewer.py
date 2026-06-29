@@ -1,6 +1,6 @@
 import cv2
 
-class Visualization:
+class Viewer:
     def __init__(self):
         self.window_name = "AprilTag Detection"
         

@@ -3,21 +3,21 @@ import cv2
 import config
 from camera import Camera
 from detector import AprilTagDetector
-from visualization import Visualization
+from viewer import Viewer
 
 
 def main():
     camera = Camera()
     detector = AprilTagDetector()
-    visualization = Visualization()
+    viewer = Viewer()
     camera.start()
 
     try:
         while True:
             frame = camera.get_frame()
             detections = detector.detect(frame)
-            frame = visualization.draw(frame, detections)
-            visualization.show(frame)
+            frame = viewer.draw(frame, detections)
+            viewer.show(frame)
             
             key = cv2.waitKey(1) & 0xFF
 
@@ -26,7 +26,7 @@ def main():
 
     finally:
         camera.release()
-        visualization.close()
+        viewer.close()
 
 
 if __name__ == "__main__":
