@@ -2,8 +2,8 @@ import json
 
 
 class Map:
-    def __init__(self):
-        with open("map.json", "r") as file:
+    def __init__(self, filename):
+        with open(filename, "r") as file:
             self.data = json.load(file)
 
     def get_landmark(self, id):
