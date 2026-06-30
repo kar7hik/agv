@@ -6,6 +6,7 @@ from viewer import Viewer
 
 import geometry
 from landmark_map import LandmarkMap
+fropm localization import Localization
 from navigation import Navigation
 
 
@@ -15,7 +16,8 @@ def main():
     viewer = Viewer()
 
     world = LandmarkMap("./maps/testbed.json")
-    navigation = Navigation(world)
+    localization = Localization(world)
+    navigation = Navigation()
     navigation.set_target(1)
 
     camera.start()
@@ -25,7 +27,8 @@ def main():
             frame = camera.get_frame()
             detections = detector.detect(frame)
             geometry.update(detections)
-            navigation.update(detections)
+            localization.update(detections)
+            navigation.update(localization)
             viewer.draw(frame, detections)
             viewer.show(frame)
 

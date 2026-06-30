@@ -15,8 +15,8 @@ class LandmarkMap:
 
     def find_landmark(self, tag_id):
         for landmark in self.data["landmarks"]:
-            for helper_tag_id in landmark["tags"].values():
-                if helper_tag_id == tag_id:
-                    return landmark
+            for helper, helper_tag in landmark["tags"].items():
+                if helper_tag == tag_id:
+                    return {"landmark": landmark, "helper": helper}
 
         return None
