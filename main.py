@@ -6,7 +6,7 @@ from viewer import Viewer
 
 import geometry
 from landmark_map import LandmarkMap
-fropm localization import Localization
+from localization import Localization
 from navigation import Navigation
 
 
