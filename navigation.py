@@ -23,5 +23,5 @@ class Navigation:
         print(
             f"Detected Tag: {tag_id}, "
             f"Current: {self.current['id']}, "
-            f"Target: {self.target['id']}"
+            f"Target: {self.target}"
         )
