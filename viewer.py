@@ -80,7 +80,6 @@ class Viewer:
                 (255, 0, 255),
                 2,
             )
-            print(detection)
 
         return frame
 
