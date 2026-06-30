@@ -1,16 +1,23 @@
 import cv2
 
-import config
 from camera import Camera
 from detector import AprilTagDetector
 from viewer import Viewer
+
 import geometry
+from map import Map
+from navigation import Navigation
 
 
 def main():
     camera = Camera()
     detector = AprilTagDetector()
     viewer = Viewer()
+
+    world = map("maps/testbed.json")
+    navigation = Navigation(world)
+    navigation.set_target(1)
+
     camera.start()
 
     try:
@@ -18,6 +25,7 @@ def main():
             frame = camera.get_frame()
             detections = detector.detect(frame)
             geometry.update(detections)
+            navigation.update(detections)
             viewer.draw(frame, detections)
             viewer.show(frame)
 
