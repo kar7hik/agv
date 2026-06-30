@@ -1,15 +1,19 @@
 class Localization:
     def __init__(self, world):
         self.world = world
+        self.reset()
 
+    def reset(self):
         self.landmark = None
         self.helper = None
         self.tag = None
+
+        self.heading = None
+        self.lateral = None
+        self.forward = None
 
     def update(self, detections):
-        self.landmark = None
-        self.helper = None
-        self.tag = None
+        self.reset()
 
         if len(detections) == 0:
             return
@@ -26,7 +30,11 @@ class Localization:
 
         self.tag = detection.tag_id
         self.landmark = result["landmark"]
-        self.helper = result["helper"]
+        self.position = result["position"]
+
+        self.heading = detection.heading
+        self.lateral = detection.lateral
+        self.forward = detection.forward
 
     def valid(self):
         return self.landmark is not None
