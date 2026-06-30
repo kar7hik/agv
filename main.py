@@ -5,7 +5,7 @@ from detector import AprilTagDetector
 from viewer import Viewer
 
 import geometry
-from map import Map
+from landmark_map import LandmarkMap
 from navigation import Navigation
 
 
@@ -14,7 +14,7 @@ def main():
     detector = AprilTagDetector()
     viewer = Viewer()
 
-    world = map("./maps/testbed.json")
+    world = LandmarkMap("./maps/testbed.json")
     navigation = Navigation(world)
     navigation.set_target(1)
 

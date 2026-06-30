@@ -1,7 +1,7 @@
 import json
 
 
-class Map:
+class LandmarkMap:
     def __init__(self, filename):
         with open(filename, "r") as file:
             self.data = json.load(file)
