@@ -14,7 +14,7 @@ def main():
     detector = AprilTagDetector()
     viewer = Viewer()
 
-    world = map("maps/testbed.json")
+    world = map("./maps/testbed.json")
     navigation = Navigation(world)
     navigation.set_target(1)
 
