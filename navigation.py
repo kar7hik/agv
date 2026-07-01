@@ -18,8 +18,6 @@ class Navigation:
         self.path_index = 0
 
         self.desired_heading = None
-
-        self.heading_error = None
         self.lateral_error = None
 
         self.velocity = 0.0
@@ -35,6 +33,14 @@ class Navigation:
         self.velocity = velocity
 
     def update(self, localization):
+        self.current = None
+        self.next = None
+        self.desired_heading = None
+        self.lateral_error = None
+
+        if self.target is None:
+            return
+
         if not localization.valid():
             return
 
@@ -42,7 +48,7 @@ class Navigation:
 
         if self.current == self.target:
             self.next = None
-            self.heading_error = 0.0
+            self.desired_heading = 0.0
             self.lateral_error = 0.0
             return
 
@@ -75,13 +81,8 @@ class Navigation:
         # Compute the desired heading
         self.desired_heading = self.world.get_heading(self.current, self.next)
 
-        # Compute the heading error
-        self.heading_error = geometry.normalize_angle(
-            self.desired_heading - localization.heading
-        )
-
         # Compute the lateral error
         self.lateral_error = localization.lateral
 
     def valid(self):
-        return self.heading_error is not None and self.lateral_error is not None
+        return self.desired_heading is not None and self.lateral_error is not None
