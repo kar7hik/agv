@@ -29,9 +29,9 @@ def main():
 
     camera.start()
 
-    if not serial.ping():
-        print("Unable to communicate with low-level controller.")
-        return
+    # if not serial.ping():
+    #     print("Unable to communicate with low-level controller.")
+    #     return
 
     started = False
 
