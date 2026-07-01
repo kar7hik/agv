@@ -23,7 +23,7 @@ def main():
 
     navigation = Navigation(world)
     navigation.set_target(1)
-    navigation.set_velocity(0.20)
+    navigation.set_velocity(0.05)
 
     serial = SerialManager("/dev/ttyUSB0")
 

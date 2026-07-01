@@ -49,7 +49,7 @@ constexpr float TRACK_WIDTH_M = 0.324;
 // Motion Limits
 //==================================================
 
-constexpr float MAX_LINEAR_VELOCITY_MPS = 0.60f;
+constexpr float MAX_LINEAR_VELOCITY_MPS = 0.10f;
 constexpr float MAX_LINEAR_ACCELERATION_MPS2 = 0.30f;
 constexpr float MAX_STEP_RATE = 10000.0f;
 constexpr float MIN_STEP_RATE = 1.0f;
