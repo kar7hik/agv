@@ -29,9 +29,19 @@ def main():
 
     camera.start()
 
-    serial.ping()
-    serial.enable()
-    serial.zero_heading()
+    if not serial.ping():
+        print("Unable to communicate with low-level controller.")
+        return
+
+    started = False
+
+    print("==========================================")
+    print("Robot Ready")
+    print("Place the robot at Landmark 0.")
+    print("Align it with the corridor.")
+    print("Press 's' to calibrate and start.")
+    print("Press 'q' to quit.")
+    print("==========================================")
 
     try:
         while True:
@@ -46,7 +56,7 @@ def main():
 
             navigation.update(localization)
 
-            if navigation.valid():
+            if started and navigation.valid():
 
                 velocity = navigation.velocity
 
@@ -60,13 +70,44 @@ def main():
                 )
 
             viewer.draw(frame, detections)
-
             viewer.show(frame)
 
             key = cv2.waitKey(1) & 0xFF
 
             if key == ord("q"):
                 break
+
+            if key == ord("s") and not started:
+
+                if not localization.valid():
+                    print("No valid localization. Cannot start.")
+                    continue
+
+                if localization.landmark["id"] != 0:
+                    print("Robot must be positioned at Landmark 0.")
+                    continue
+
+                print("Calibrating IMU...")
+
+                if not serial.calibrate():
+                    print("IMU calibration failed.")
+                    continue
+
+                print("Zeroing heading...")
+
+                if not serial.zero_heading():
+                    print("Failed to zero heading.")
+                    continue
+
+                print("Enabling motors...")
+
+                if not serial.enable():
+                    print("Failed to enable motors.")
+                    continue
+
+                started = True
+
+                print("Autonomous navigation started.")
 
     finally:
 
