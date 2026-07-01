@@ -1,42 +1,47 @@
 #pragma once
 
 #include <Arduino.h>
-#include <string.h>
-#include <stdlib.h>
-#include <math.h>
 
 #include "Config.h"
-#include "MotorManager.h"
-#include "ImuManager.h"
-#include "MotionController.h"
+#include "Stepper.h"
+#include "Imu.h"
+#include "Motion.h"
 
 class SerialProtocol {
 public:
-    SerialProtocol(MotorManager& motorManager, ImuManager& imuManager, MotionController& motionController);
+    SerialProtocol(
+        Stepper& stepper,
+        Imu& imu,
+        Motion& motion);
 
     void begin();
+
     void update();
 
     void sendStatusIfDue();
 
 private:
-    void readSerialCommand();
+    void readCommand();
+
     void processCommand(char* line);
 
     void handleVelocityCommand();
+
     void printStatus();
+
     void printHelp();
 
 private:
-    MotorManager& motor;
-    ImuManager& imu;
-    MotionController& motion;
+    Stepper& stepper;
+    Imu& imu;
+    Motion& motion;
 
-    char commandBuffer[96];
+    char commandBuffer[128];
+
     uint8_t commandIndex;
 
-    uint32_t lastCommandMillis;
-    uint32_t lastStatusMillis;
+    uint32_t lastCommandTime;
+    uint32_t lastStatusTime;
 
     bool commandActive;
 };

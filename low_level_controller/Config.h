@@ -25,10 +25,6 @@ constexpr uint8_t RIGHT_EN_PIN = 14;
 constexpr uint8_t DRIVER_ENABLE_LEVEL = LOW;
 constexpr uint8_t DRIVER_DISABLE_LEVEL = HIGH;
 
-// Set true only if motor wiring is reversed.
-constexpr bool LEFT_DIR_INVERTED = false;
-constexpr bool RIGHT_DIR_INVERTED = false;
-
 //==================================================
 // ESP32 Timers
 //==================================================
@@ -42,37 +38,26 @@ constexpr uint32_t INITIAL_TIMER_PERIOD_US = 1000;
 //==================================================
 // Robot Geometry
 //==================================================
-
-constexpr float PI = 3.14159265358979323846f;
-
+// constexpr float PI = 3.14159265358979323846f;
 constexpr float WHEEL_DIAMETER_M = 0.117f;
-constexpr float TRACK_WIDTH_M = 0.320f;
-
 constexpr uint32_t STEPS_PER_WHEEL_REV = 20000;
-
-constexpr float WHEEL_CIRCUMFERENCE_M =
-    PI * WHEEL_DIAMETER_M;
-
-constexpr float STEPS_PER_METER =
-    STEPS_PER_WHEEL_REV / WHEEL_CIRCUMFERENCE_M;
+constexpr float WHEEL_CIRCUMFERENCE_M = PI * WHEEL_DIAMETER_M;
+constexpr float STEPS_PER_METER = STEPS_PER_WHEEL_REV / WHEEL_CIRCUMFERENCE_M;
+constexpr float TRACK_WIDTH_M = 0.324;
 
 //==================================================
 // Motion Limits
 //==================================================
 
-constexpr float MAX_LINEAR_VELOCITY_MPS = 0.10f;
-
+constexpr float MAX_LINEAR_VELOCITY_MPS = 0.60f;
 constexpr float MAX_LINEAR_ACCELERATION_MPS2 = 0.30f;
-
-constexpr float MAX_STEP_RATE_HZ = 10000.0f;
-constexpr float MIN_STEP_RATE_HZ = 1.0f;
+constexpr float MAX_STEP_RATE = 10000.0f;
+constexpr float MIN_STEP_RATE = 1.0f;
 
 //==================================================
 // MPU6050
 //==================================================
-
 constexpr uint8_t MPU6050_ADDRESS = 0x68;
-
 constexpr uint8_t REG_PWR_MGMT_1 = 0x6B;
 constexpr uint8_t REG_GYRO_CONFIG = 0x1B;
 constexpr uint8_t REG_GYRO_ZOUT_H = 0x47;
@@ -88,9 +73,9 @@ constexpr float HEADING_CORRECTION_ALPHA = 0.03f;
 //==================================================
 // Heading
 //==================================================
-
-constexpr float HALF_CIRCLE_DEG = 180.0f;
 constexpr float FULL_CIRCLE_DEG = 360.0f;
+constexpr float HEADING_MAX_DEG = 180.0f;
+constexpr float HEADING_MIN_DEG = -180.0f;
 
 //==================================================
 // Controller
@@ -102,14 +87,13 @@ constexpr float HEADING_KD = 0.0f;
 
 constexpr float LATERAL_KP = 1800.0f;
 
-constexpr float MAX_STEERING_OUTPUT = 1200.0f;
+constexpr float MAX_STEERING = 1200.0f;
 
 constexpr float STEERING_DIRECTION = 1.0f;
 
 //==================================================
 // Timing
 //==================================================
-
 constexpr uint32_t CONTROL_PERIOD_US = 2500;
 constexpr uint32_t COMMAND_TIMEOUT_MS = 300;
 constexpr uint32_t STATUS_PERIOD_MS = 100;

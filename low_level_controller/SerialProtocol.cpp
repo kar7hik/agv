@@ -1,46 +1,57 @@
 #include "SerialProtocol.h"
 
-SerialProtocol::SerialProtocol(MotorManager& motorManager, ImuManager& imuManager, MotionController& motionController)
-    : motor(motorManager), imu(imuManager), motion(motionController),
-      commandIndex(0), lastCommandMillis(0), lastStatusMillis(0),
-      commandActive(false){
-        commandBuffer[0] = '\0';
+SerialProtocol::SerialProtocol(
+    Stepper& stepper,
+    Imu& imu,
+    Motion& motion)
+    : stepper(stepper),
+      imu(imu),
+      motion(motion),
+      commandIndex(0),
+      lastCommandTime(0),
+      lastStatusTime(0),
+      commandActive(false) {
+
+    commandBuffer[0] = '\0';
 }
 
-void SerialProtocol::begin(){
+void SerialProtocol::begin() {
     Serial.begin(Config::SERIAL_BAUD_RATE);
-    delay(1000);
 
-    lastCommandMillis = millis();
-    lastStatusMillis = millis();
+    delay(500);
 
-    Serial.println();
-    Serial.println("AGV ESP32 SerialProtocol Ready");
-    printHelp();
+    lastCommandTime = millis();
+    lastStatusTime = millis();
+
+    Serial.println("AGV Ready");
 }
 
-void SerialProtocol::update(){
-    readSerialCommand();
+void SerialProtocol::update() {
+    readCommand();
 
-    if (commandActive) {
-        if (millis() - lastCommandMillis > Config::COMMAND_TIMEOUT_MS) {
-            motion.stop();
-            commandActive = false;
+    if (commandActive && (millis() - lastCommandTime > Config::COMMAND_TIMEOUT_MS)) {
 
-            Serial.println("FAULT command timeout");
-        }
+        motion.stop();
+
+        commandActive = false;
+
+        Serial.println("FAULT TIMEOUT");
     }
 }
 
-void SerialProtocol::sendStatusIfDue(){
-    if (millis() - lastStatusMillis >= Config::STATUS_PERIOD_MS) {
-        lastStatusMillis = millis();
-        printStatus();
+void SerialProtocol::sendStatusIfDue() {
+    if ((millis() - lastStatusTime) < Config::STATUS_PERIOD_MS) {
+        return;
     }
+
+    lastStatusTime = millis();
+
+    printStatus();
 }
 
-void SerialProtocol::readSerialCommand(){
-    while (Serial.available() > 0) {
+void SerialProtocol::readCommand() {
+    while (Serial.available()) {
+
         char c = static_cast<char>(Serial.read());
 
         if (c == '\r') {
@@ -48,6 +59,7 @@ void SerialProtocol::readSerialCommand(){
         }
 
         if (c == '\n') {
+
             commandBuffer[commandIndex] = '\0';
 
             if (commandIndex > 0) {
@@ -55,202 +67,176 @@ void SerialProtocol::readSerialCommand(){
             }
 
             commandIndex = 0;
+
             return;
         }
 
         if (commandIndex < sizeof(commandBuffer) - 1) {
-            commandBuffer[commandIndex] = c;
-            commandIndex++;
-        } else {
-            commandIndex = 0;
-            commandBuffer[0] = '\0';
-            Serial.println("ERR command too long");
+
+            commandBuffer[commandIndex++] = c;
         }
     }
 }
 
-void SerialProtocol::processCommand(char* line){
+void SerialProtocol::processCommand(char* line) {
+
     char* cmd = strtok(line, " ");
 
     if (cmd == nullptr) {
         return;
     }
 
-    if (strcmp(cmd, "HELP") == 0 || strcmp(cmd, "help") == 0) {
-        printHelp();
+    if (!strcasecmp(cmd, "PING")) {
+
+        Serial.println("ACK");
+
         return;
     }
 
-    if (strcmp(cmd, "PING") == 0 || strcmp(cmd, "ping") == 0) {
-        Serial.println("ACK PING");
+    if (!strcasecmp(cmd, "EN")) {
+
+        stepper.enable();
+
+        Serial.println("ACK");
+
         return;
     }
 
-    if (strcmp(cmd, "EN") == 0 || strcmp(cmd, "en") == 0) {
-        motor.enableDrivers();
-        Serial.println("ACK EN");
-        return;
-    }
+    if (!strcasecmp(cmd, "DIS")) {
 
-    if (strcmp(cmd, "DIS") == 0 || strcmp(cmd, "dis") == 0) {
         motion.stop();
-        motor.disableDrivers();
+
+        stepper.disable();
+
         commandActive = false;
 
-        Serial.println("ACK DIS");
+        Serial.println("ACK");
+
         return;
     }
 
-    if (strcmp(cmd, "STOP") == 0 || strcmp(cmd, "stop") == 0) {
+    if (!strcasecmp(cmd, "STOP")) {
+
         motion.stop();
+
         commandActive = false;
 
-        Serial.println("ACK STOP");
+        Serial.println("ACK");
+
         return;
     }
 
-    if (strcmp(cmd, "CAL") == 0 || strcmp(cmd, "cal") == 0) {
+    if (!strcasecmp(cmd, "CAL")) {
+
         motion.stop();
+
         commandActive = false;
 
-        Serial.println("ACK CAL START");
-        Serial.println("Keep robot stationary");
+        if (imu.calibrate()) {
+            Serial.println("ACK");
+        } else {
+            Serial.println("ERR");
+        }
 
-        imu.calibrate();
-
-        Serial.println("ACK CAL DONE");
         return;
     }
 
-    if (strcmp(cmd, "ZERO") == 0 || strcmp(cmd, "zero") == 0) {
+    if (!strcasecmp(cmd, "ZERO")) {
+
         imu.resetHeading();
 
-        Serial.println("ACK ZERO");
+        Serial.println("ACK");
+
         return;
     }
 
-    if (strcmp(cmd, "STATUS") == 0 || strcmp(cmd, "status") == 0) {
+    if (!strcasecmp(cmd, "STATUS")) {
+
         printStatus();
+
         return;
     }
 
-    if (strcmp(cmd, "VEL") == 0 || strcmp(cmd, "vel") == 0) {
+    if (!strcasecmp(cmd, "VEL")) {
+
         handleVelocityCommand();
+
         return;
     }
 
-    Serial.print("ERR unknown command: ");
-    Serial.println(cmd);
+    Serial.println("ERR");
 }
 
-void SerialProtocol::handleVelocityCommand(){
-    char* velStr = strtok(nullptr, " ");
-    char* headingStr = strtok(nullptr, " ");
-    char* lateralStr = strtok(nullptr, " ");
+void SerialProtocol::handleVelocityCommand() {
 
-    if (velStr == nullptr || headingStr == nullptr || lateralStr == nullptr) {
-        Serial.println("ERR usage: VEL velocity headingError lateralError");
-        Serial.println("Example: VEL 0.05 -3 0.01");
+    char* velocityString = strtok(nullptr, " ");
+    char* headingString = strtok(nullptr, " ");
+    char* lateralString = strtok(nullptr, " ");
+
+    if (velocityString == nullptr || headingString == nullptr || lateralString == nullptr) {
+
+        Serial.println("ERR");
+
         return;
     }
 
-    float velocityMps = atof(velStr);
-    float headingErrorDeg = atof(headingStr);
-    float lateralErrorM = atof(lateralStr);
+    NavigationCommand command;
 
-    motor.enableDrivers();
+    command.velocityMps = atof(velocityString);
 
-    motion.setNavigationCommand(
-        velocityMps,
-        headingErrorDeg,
-        lateralErrorM
-    );
+    command.desiredHeadingDeg = atof(headingString);
 
-    lastCommandMillis = millis();
+    command.lateralErrorM = atof(lateralString);
 
-    if (fabsf(velocityMps) > 0.0f) {
-        commandActive = true;
-    } else {
-        commandActive = false;
-    }
+    motion.setNavigationCommand(command);
 
-    Serial.print("ACK VEL ");
-    Serial.print(velocityMps, 3);
-    Serial.print(" ");
-    Serial.print(headingErrorDeg, 3);
-    Serial.print(" ");
-    Serial.println(lateralErrorM, 4);
+    lastCommandTime = millis();
+
+    commandActive = fabs(command.velocityMps) > 0.0f;
+
+    Serial.println("ACK");
 }
 
-void SerialProtocol::printStatus(){
+void SerialProtocol::printStatus() {
+
+    NavigationCommand command = motion.getNavigationCommand();
+
     Serial.print("STATUS ");
 
-    Serial.print("mode=");
+    Serial.print("EN=");
+    Serial.print(stepper.isEnabled());
 
-    MotionController::Mode mode = motion.getMode();
+    Serial.print(" CAL=");
+    Serial.print(imu.isCalibrated());
 
-    if (mode == MotionController::Mode::Stopped) {
-        Serial.print("STOPPED");
-    } else if (mode == MotionController::Mode::VisualCorrection) {
-        Serial.print("VISUAL");
-    } else if (mode == MotionController::Mode::ImuHeadingHold) {
-        Serial.print("IMU_HOLD");
-    }
+    Serial.print(" HDG=");
+    Serial.print(imu.getHeading(), 2);
 
-    Serial.print(" en=");
-    Serial.print(motor.areDriversEnabled() ? 1 : 0);
+    Serial.print(" GYRO=");
+    Serial.print(imu.getGyroRate(), 2);
 
-    Serial.print(" imuCal=");
-    Serial.print(imu.isCalibrated() ? 1 : 0);
+    Serial.print(" TARGET=");
+    Serial.print(command.desiredHeadingDeg, 2);
 
-    Serial.print(" imu=");
-    Serial.print(imu.getHeadingDeg(), 2);
+    Serial.print(" ERR=");
+    Serial.print(motion.getHeadingError(), 2);
 
-    Serial.print(" gyroZ=");
-    Serial.print(imu.getGyroZDegPerSec(), 2);
-
-    Serial.print(" target=");
-    Serial.print(motion.getTargetHeadingDeg(), 2);
-
-    Serial.print(" imuErr=");
-    Serial.print(motion.getImuHeadingErrorDeg(), 2);
-
-    Serial.print(" vel=");
-    Serial.print(motion.getCommandVelocityMps(), 3);
-
-    Serial.print(" visualH=");
-    Serial.print(motion.getVisualHeadingErrorDeg(), 2);
-
-    Serial.print(" visualL=");
-    Serial.print(motion.getVisualLateralErrorM(), 4);
-
-    Serial.print(" L=");
-    Serial.print(motion.getLeftFrequencyHz(), 1);
-
-    Serial.print(" R=");
-    Serial.println(motion.getRightFrequencyHz(), 1);
+    Serial.print(" VEL=");
+    Serial.println(command.velocityMps, 3);
 }
 
-void SerialProtocol::printHelp(){
+void SerialProtocol::printHelp() {
+
     Serial.println();
-    Serial.println("Commands:");
-    Serial.println("  HELP");
-    Serial.println("  PING");
-    Serial.println("  EN");
-    Serial.println("  DIS");
-    Serial.println("  STOP");
-    Serial.println("  CAL");
-    Serial.println("  ZERO");
-    Serial.println("  STATUS");
-    Serial.println("  VEL velocity headingError lateralError");
-    Serial.println();
-    Serial.println("Examples:");
-    Serial.println("  PING");
-    Serial.println("  EN");
-    Serial.println("  CAL");
-    Serial.println("  VEL 0.05 0 0");
-    Serial.println("  VEL 0.05 -3 0.01");
-    Serial.println("  VEL 0 0 0");
-    Serial.println("  STOP");
+
+    Serial.println("PING");
+    Serial.println("EN");
+    Serial.println("DIS");
+    Serial.println("STOP");
+    Serial.println("CAL");
+    Serial.println("ZERO");
+    Serial.println("STATUS");
+    Serial.println("VEL velocity desiredHeading lateralError");
+
     Serial.println();
 }
