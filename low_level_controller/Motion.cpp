@@ -1,3 +1,5 @@
+#include "Arduino.h"
+#include "HardwareSerial.h"
 #include "Motion.h"
 
 Motion::Motion(Stepper& stepper, Imu& imu)
@@ -37,11 +39,13 @@ void Motion::update() {
     const float headingCorrection =
         Config::HEADING_KP * headingErrorDeg;
 
+    const float headingCorrectionRad = headingCorrection * DEG_TO_RAD;
+
     const float lateralCorrection =
         Config::LATERAL_KP * command.lateralErrorM;
 
     angularVelocity =
-        headingCorrection + lateralCorrection;
+        headingCorrectionRad + lateralCorrection;
 
     angularVelocity =
         limitAngularVelocity(angularVelocity);
@@ -76,6 +80,8 @@ NavigationCommand Motion::getNavigationCommand() const {
 }
 
 float Motion::getHeadingError() const {
+    Serial.println("headingErrorDeg: ");
+    Serial.println(headingErrorDeg);
     return headingErrorDeg;
 }
 

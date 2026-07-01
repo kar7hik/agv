@@ -51,7 +51,7 @@ constexpr float TRACK_WIDTH_M = 0.324;
 
 constexpr float MAX_LINEAR_VELOCITY_MPS = 0.10f;
 constexpr float MAX_LINEAR_ACCELERATION_MPS2 = 0.30f;
-constexpr float MAX_STEP_RATE = 10000.0f;
+constexpr float MAX_STEP_RATE = 5000.0f;
 constexpr float MIN_STEP_RATE = 1.0f;
 
 //==================================================
@@ -81,13 +81,13 @@ constexpr float HEADING_MIN_DEG = -180.0f;
 // Controller
 //==================================================
 
-constexpr float HEADING_KP = 18.0f;
+constexpr float HEADING_KP = 0.2f;
 constexpr float HEADING_KI = 0.0f;
 constexpr float HEADING_KD = 0.0f;
 
-constexpr float LATERAL_KP = 1800.0f;
+constexpr float LATERAL_KP = 0.01f;
 
-constexpr float MAX_STEERING = 1200.0f;
+constexpr float MAX_STEERING = 0.05f;
 
 constexpr float STEERING_DIRECTION = 1.0f;
 
@@ -95,7 +95,7 @@ constexpr float STEERING_DIRECTION = 1.0f;
 // Timing
 //==================================================
 constexpr uint32_t CONTROL_PERIOD_US = 2500;
-constexpr uint32_t COMMAND_TIMEOUT_MS = 300;
+constexpr uint32_t COMMAND_TIMEOUT_MS = 5000;
 constexpr uint32_t STATUS_PERIOD_MS = 100;
 
 }
