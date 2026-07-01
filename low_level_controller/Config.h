@@ -12,6 +12,7 @@ namespace Config {
     constexpr uint8_t LEFT_DIR_PIN = 26;
     constexpr uint8_t LEFT_EN_PIN = 25;
 
+<<<<<<< HEAD
     constexpr uint8_t RIGHT_STEP_PIN = 4;
     constexpr uint8_t RIGHT_DIR_PIN = 13;
     constexpr uint8_t RIGHT_EN_PIN = 14;
@@ -39,9 +40,47 @@ namespace Config {
     constexpr uint16_t TIMER_PRESCALER = 80; 
 
     // Initial timer alarm value //
+=======
+// ---------------- Motor pins ----------------
+constexpr uint8_t LEFT_STEP_PIN = 16;
+constexpr uint8_t LEFT_DIR_PIN = 26;
+constexpr uint8_t LEFT_EN_PIN = 25;
+
+constexpr uint8_t RIGHT_STEP_PIN = 4;
+constexpr uint8_t RIGHT_DIR_PIN = 13;
+constexpr uint8_t RIGHT_EN_PIN = 14;
+
+constexpr uint8_t DRIVER_ENABLE_LEVEL = LOW;
+constexpr uint8_t DRIVER_DISABLE_LEVEL = HIGH;
+
+constexpr bool LEFT_DIR_INVERTED = false;
+constexpr bool RIGHT_DIR_INVERTED = false;
+
+// ---------------- ESP32 hardware timers ----------------
+constexpr uint8_t LEFT_TIMER_ID = 0;
+constexpr uint8_t RIGHT_TIMER_ID = 1;
+constexpr uint16_t TIMER_PRESCALER = 80;    // 80 MHz / 80 = 1 MHz, so 1 tick = 1 us
+
+// ---------------- MPU6050 ----------------
+constexpr uint8_t MPU6050_ADDR = 0x68;
+constexpr uint8_t REG_PWR_MGMT_1 = 0x6B;
+constexpr uint8_t REG_GYRO_CONFIG = 0x1B;
+constexpr uint8_t REG_GYRO_ZOUT_H = 0x47;
+
+constexpr float GYRO_SCALE_250DPS = 131.0f;    // raw LSB per deg/s at +/-250 deg/s
+constexpr uint16_t IMU_CALIBRATION_SAMPLES = 1000;
+constexpr uint16_t IMU_CALIBRATION_DELAY_MS = 2;
+
+
+constexpr float IMU_HEADING_CORRECTION_ALPHA = 0.03f;    // slow visual correction, not hard reset
+
+
+constexpr float PI = 3.14159265358979323846f;
+>>>>>>> 0f0dff6 (push)
 
     constexpr uint32_t INITIAL_TIMER_ALARM_US = 1000;
 
+<<<<<<< HEAD
     // MPU6050 //
     constexpr uint8_t MPU6050_ADDRESS = 0x68;
     constexpr uint8_t REG_PWR_MGMT_1 = 0x6B;
@@ -51,6 +90,17 @@ namespace Config {
     constexpr float GYRO_SCALE_250DPS = 131.0f;   // raw LSB per deg/s at +/-250 deg/s
     constexpr uint16_t IMU_CALIBRATION_SAMPLES = 1000;
     constexpr uint16_t IMU_CALIBRATION_DELAY_MS = 2;
+=======
+// Must match your real drivetrain.
+constexpr float WHEEL_DIAMETER_M = 0.117f;
+constexpr uint16_t MOTOR_FULL_STEPS_PER_REV = 200;
+constexpr uint16_t MICROSTEPS = 16;
+constexpr float GEAR_RATIO = 1.0f;
+
+constexpr float STEPS_PER_WHEEL_REV = MOTOR_FULL_STEPS_PER_REV * MICROSTEPS * GEAR_RATIO;
+constexpr float WHEEL_CIRCUMFERENCE_M = WHEEL_DIAMETER_M * PI;
+constexpr float STEPS_PER_METER = STEPS_PER_WHEEL_REV / WHEEL_CIRCUMFERENCE_M;
+>>>>>>> 0f0dff6 (push)
 
     // Heading //
     constexpr float HEADING_MAX_DEG = 180.0f;
@@ -65,9 +115,16 @@ namespace Config {
     constexpr uint8_t PACKET_SOF_1 = 0xAA;
     constexpr uint8_t PACKET_SOF_2 = 0x55;
 
+<<<<<<< HEAD
     // =====================================================
     // Controller Gains
     // =====================================================
+=======
+// Controller update rate and safety timeout.
+constexpr uint32_t CONTROL_PERIOD_US = 2500;    // 400 Hz
+constexpr uint32_t COMMAND_TIMEOUT_MS = 300;
+constexpr uint32_t STATUS_PERIOD_MS = 100;
+>>>>>>> 0f0dff6 (push)
 
     // These values are for MotionController.
     // Do not use them inside MotorManager.
@@ -116,3 +173,7 @@ namespace Config {
     constexpr uint32_t VISUAL_CORRECTION_TIMEOUT_MS = 200;
 }
 
+<<<<<<< HEAD
+=======
+}    // namespace Config
+>>>>>>> 0f0dff6 (push)
