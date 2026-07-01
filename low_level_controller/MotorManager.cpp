@@ -1,22 +1,21 @@
 #include "MotorManager.h"
-#include <math.h>
 
-hw_timer_t* MotorManager::_leftTimer = nullptr;
-hw_timer_t* MotorManager::_rightTimer = nullptr;
-volatile bool MotorManager::_leftStepState = false;
-volatile bool MotorManager::_rightStepState = false;
+hw_timer_t* MotorManager::leftTimer = nullptr;
+hw_timer_t* MotorManager::rightTimer = nullptr;
 
-void IRAM_ATTR MotorManager::onLeftTimer() {
-    _leftStepState = !_leftStepState;
-    digitalWrite(Config::LEFT_STEP_PIN, _leftStepState);
+volatile bool MotorManager::leftStepState = false;
+volatile bool MotorManager::rightStepState = false;
+
+MotorManager::MotorManager() : leftFrequencyHz(0.0f), rightFrequencyHz(0.0f), driversEnabled(false){}
+
+void MotorManager::begin(){
+    setupPins();
+    setupTimers();
+    disableDrivers();
+    stopMotors();
 }
 
-void IRAM_ATTR MotorManager::onRightTimer() {
-    _rightStepState = !_rightStepState;
-    digitalWrite(Config::RIGHT_STEP_PIN, _rightStepState);
-}
-
-bool MotorManager::begin() {
+void MotorManager::setupPins(){
     pinMode(Config::LEFT_STEP_PIN, OUTPUT);
     pinMode(Config::LEFT_DIR_PIN, OUTPUT);
     pinMode(Config::LEFT_EN_PIN, OUTPUT);
@@ -27,117 +26,172 @@ bool MotorManager::begin() {
 
     digitalWrite(Config::LEFT_STEP_PIN, LOW);
     digitalWrite(Config::RIGHT_STEP_PIN, LOW);
-    disableDrivers();
 
-    _leftTimer = timerBegin(Config::LEFT_TIMER_ID, Config::TIMER_PRESCALER, true);
-    _rightTimer = timerBegin(Config::RIGHT_TIMER_ID, Config::TIMER_PRESCALER, true);
+    digitalWrite(Config::LEFT_DIR_PIN, LOW);
+    digitalWrite(Config::RIGHT_DIR_PIN, LOW);
 
-    if (_leftTimer == nullptr || _rightTimer == nullptr) {
-        return false;
-    }
-
-    timerAttachInterrupt(_leftTimer, &MotorManager::onLeftTimer, true);
-    timerAttachInterrupt(_rightTimer, &MotorManager::onRightTimer, true);
-
-    timerAlarmWrite(_leftTimer, 1000, true);
-    timerAlarmWrite(_rightTimer, 1000, true);
-    timerAlarmDisable(_leftTimer);
-    timerAlarmDisable(_rightTimer);
-
-    return true;
-}
-
-void MotorManager::enableDrivers() {
-    digitalWrite(Config::LEFT_EN_PIN, Config::DRIVER_ENABLE_LEVEL);
-    digitalWrite(Config::RIGHT_EN_PIN, Config::DRIVER_ENABLE_LEVEL);
-    _driversEnabled = true;
-}
-
-void MotorManager::disableDrivers() {
-    stopMotors();
     digitalWrite(Config::LEFT_EN_PIN, Config::DRIVER_DISABLE_LEVEL);
     digitalWrite(Config::RIGHT_EN_PIN, Config::DRIVER_DISABLE_LEVEL);
-    _driversEnabled = false;
 }
 
-bool MotorManager::driversEnabled() const {
-    return _driversEnabled;
+void MotorManager::setupTimers(){
+    leftTimer = timerBegin(Config::LEFT_TIMER_ID, Config::TIMER_PRESCALER, true);
+    rightTimer = timerBegin(Config::RIGHT_TIMER_ID, Config::TIMER_PRESCALER, true);
+
+    timerAttachInterrupt(leftTimer, &MotorManager::onLeftTimer, true);
+    timerAttachInterrupt(rightTimer, &MotorManager::onRightTimer, true);
+
+    timerAlarmWrite(leftTimer, Config::INITIAL_TIMER_ALARM_US, true);
+    timerAlarmWrite(rightTimer, Config::INITIAL_TIMER_ALARM_US, true);
+
+    timerAlarmDisable(leftTimer);
+    timerAlarmDisable(rightTimer);
 }
 
-void MotorManager::setMotorFrequencies(float leftHz, float rightHz) {
-    if (!_driversEnabled) {
-        stopMotors();
-        return;
+void MotorManager::enableDrivers(){
+    digitalWrite(Config::LEFT_EN_PIN, Config::DRIVER_ENABLE_LEVEL);
+    digitalWrite(Config::RIGHT_EN_PIN, Config::DRIVER_ENABLE_LEVEL);
+
+    driversEnabled = true;
+}
+
+void MotorManager::disableDrivers(){
+    stopMotors();
+
+    digitalWrite(Config::LEFT_EN_PIN, Config::DRIVER_DISABLE_LEVEL);
+    digitalWrite(Config::RIGHT_EN_PIN, Config::DRIVER_DISABLE_LEVEL);
+
+    driversEnabled = false;
+}
+
+void MotorManager::stopMotors(){
+    leftFrequencyHz = 0.0f;
+    rightFrequencyHz = 0.0f;
+
+    if (leftTimer != nullptr){
+        timerAlarmDisable(leftTimer);
     }
 
-    leftHz = constrain(leftHz, -Config::MAX_MOTOR_FREQ_HZ, Config::MAX_MOTOR_FREQ_HZ);
-    rightHz = constrain(rightHz, -Config::MAX_MOTOR_FREQ_HZ, Config::MAX_MOTOR_FREQ_HZ);
-
-    setLeftFrequency(leftHz);
-    setRightFrequency(rightHz);
-}
-
-void MotorManager::stopMotors() {
-    stopLeftMotor();
-    stopRightMotor();
-}
-
-float MotorManager::getLeftFrequencyHz() const {
-    return _leftFrequencyHz;
-}
-
-float MotorManager::getRightFrequencyHz() const {
-    return _rightFrequencyHz;
-}
-
-void MotorManager::setLeftFrequency(float frequencyHz) {
-    if (fabsf(frequencyHz) < Config::MIN_EFFECTIVE_FREQ_HZ) {
-        stopLeftMotor();
-        return;
+    if (rightTimer != nullptr){
+        timerAlarmDisable(rightTimer);
     }
 
-    const bool forward = frequencyHz > 0.0f;
-    digitalWrite(Config::LEFT_DIR_PIN, (forward ^ Config::LEFT_DIR_INVERTED) ? HIGH : LOW);
-
-    const float absHz = fabsf(frequencyHz);
-    const uint32_t halfPeriodUs = static_cast<uint32_t>(1000000.0f / (2.0f * absHz));
-
-    timerAlarmWrite(_leftTimer, halfPeriodUs, true);
-    timerAlarmEnable(_leftTimer);
-    _leftFrequencyHz = frequencyHz;
-}
-
-void MotorManager::setRightFrequency(float frequencyHz) {
-    if (fabsf(frequencyHz) < Config::MIN_EFFECTIVE_FREQ_HZ) {
-        stopRightMotor();
-        return;
-    }
-
-    const bool forward = frequencyHz > 0.0f;
-    digitalWrite(Config::RIGHT_DIR_PIN, (forward ^ Config::RIGHT_DIR_INVERTED) ? HIGH : LOW);
-
-    const float absHz = fabsf(frequencyHz);
-    const uint32_t halfPeriodUs = static_cast<uint32_t>(1000000.0f / (2.0f * absHz));
-
-    timerAlarmWrite(_rightTimer, halfPeriodUs, true);
-    timerAlarmEnable(_rightTimer);
-    _rightFrequencyHz = frequencyHz;
-}
-
-void MotorManager::stopLeftMotor() {
-    if (_leftTimer != nullptr) {
-        timerAlarmDisable(_leftTimer);
-    }
     digitalWrite(Config::LEFT_STEP_PIN, LOW);
-    _leftStepState = false;
-    _leftFrequencyHz = 0.0f;
+    digitalWrite(Config::RIGHT_STEP_PIN, LOW);
+
+    leftStepState = false;
+    rightStepState = false;
 }
 
-void MotorManager::stopRightMotor() {
-    if (_rightTimer != nullptr) {
-        timerAlarmDisable(_rightTimer);
+void MotorManager::setFrequencies(float leftFreqHz, float rightFreqHz){
+    setLeftFrequency(leftFreqHz);
+    setRightFrequency(rightFreqHz);
+}
+
+void MotorManager::setLeftFrequency(float freqHz){
+    freqHz = limitFrequency(freqHz);
+    leftFrequencyHz = freqHz;
+    applyLeftFrequency(leftFrequencyHz);
+}
+
+void MotorManager::setRightFrequency(float freqHz){
+    freqHz = limitFrequency(freqHz);
+    rightFrequencyHz = freqHz;
+    applyRightFrequency(rightFrequencyHz);
+}
+
+void MotorManager::applyLeftFrequency(float freqHz){
+    if(leftTimer == nullptr){
+        return;
     }
-    digitalWrite(Config::RIGHT_STEP_PIN, LOW);
-    _rightStepState = false;
-    _rightFrequencyHz = 0.0f;
+
+        if (isZeroFrequency(freqHz)) {
+        timerAlarmDisable(leftTimer);
+        digitalWrite(Config::LEFT_STEP_PIN, LOW);
+        leftStepState = false;
+        return;
+    }
+
+    if (freqHz >= 0.0f) {
+        digitalWrite(Config::LEFT_DIR_PIN, HIGH);
+    } else {
+        digitalWrite(Config::LEFT_DIR_PIN, LOW);
+        freqHz = -freqHz;
+    }
+
+    uint32_t alarmUs = static_cast<uint32_t>(1000000.0f / (2.0f * freqHz));
+
+    if (alarmUs < 1){
+        alarmUs = 1;
+    }
+
+    timerAlarmWrite(leftTimer, alarmUs, true);
+    timerAlarmEnable(leftTimer);
+}
+
+void MotorManager::applyRightFrequency(float freqHz){
+    if(rightTimer == nullptr){
+        return;
+    }
+
+    if (isZeroFrequency(freqHz)) {
+        timerAlarmDisable(rightTimer);
+        digitalWrite(Config::RIGHT_STEP_PIN, LOW);
+        rightStepState = false;
+        return;
+    }
+
+    if (freqHz >= 0.0f) {
+        digitalWrite(Config::RIGHT_DIR_PIN, HIGH);
+    } else {
+        digitalWrite(Config::RIGHT_DIR_PIN, LOW);
+        freqHz = -freqHz;
+    }
+
+    uint32_t alarmUs = static_cast<uint32_t>(1000000.0f / (2.0f * freqHz));
+
+    if (alarmUs < 1){
+        alarmUs = 1;
+    }
+
+    timerAlarmWrite(rightTimer, alarmUs, true);
+    timerAlarmEnable(rightTimer);
+}
+
+float MotorManager::limitFrequency(float freqHz) const{
+    if (freqHz > Config::MAX_MOTOR_FREQ_HZ){
+        return Config::MAX_MOTOR_FREQ_HZ;
+    }
+
+    if (freqHz < -Config::MAX_MOTOR_FREQ_HZ){
+        return -Config::MAX_MOTOR_FREQ_HZ;
+    }
+
+    return freqHz;
+}
+
+bool MotorManager::isZeroFrequency(float freqHz) const{
+    return fabs(freqHz) < Config::MIN_EFFECTIVE_FREQ_HZ;
+}
+
+float MotorManager::getLeftFrequency() const{
+    return leftFrequencyHz;
+}
+
+float MotorManager::getRightFrequency() const{
+    return rightFrequencyHz;
+}
+
+bool MotorManager::areDriversEnabled() const{
+    return driversEnabled;
+}
+
+void IRAM_ATTR MotorManager::onLeftTimer(){
+    leftStepState = !leftStepState;
+    digitalWrite(Config::LEFT_STEP_PIN, leftStepState? HIGH : LOW);
+}
+
+void IRAM_ATTR MotorManager::onRightTimer(){
+    rightStepState = !rightStepState;
+    digitalWrite(Config::RIGHT_STEP_PIN, rightStepState? HIGH : LOW);
 }

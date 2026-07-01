@@ -6,33 +6,34 @@
 
 class ImuManager {
 public:
-    bool begin();
-    bool calibrate();
-    void update();
+    ImuManager();
 
-    // Slow correction only. Do not use this as normal steering control.
-    void applyHeadingCorrectionDeg(float correctionDeg);
-    void resetHeading(float headingDeg = 0.0f);
+    bool begin();
+
+    void calibrate();
+    void update();
 
     float getHeadingDeg() const;
     float getGyroZDegPerSec() const;
-    float getGyroBiasZDegPerSec() const;
+    float getGyroZBias() const;
 
-    bool isInitialized() const;
     bool isCalibrated() const;
-    bool hasFault() const;
+
+    void resetHeading();
+    void setHeading(float headingDeg);
 
 private:
-    bool readRawGyroZ(float& gyroZDegPerSec);
-    static float wrapAngleDeg(float angleDeg);
+    void writeRegister(uint8_t reg, uint8_t value);
+    int16_t readGyroZRaw();
 
-    bool _initialized = false;
-    bool _calibrated = false;
-    bool _fault = false;
+    float normalizeHeading(float headingDeg) const;
 
-    float _gyroBiasZDegPerSec = 0.0f;
-    float _gyroZDegPerSec = 0.0f;
-    float _relativeHeadingDeg = 0.0f;
+private:
+    float headingDeg;
+    float gyroZDegPerSec;
+    float gyroZBias;
 
-    uint32_t _lastUpdateMicros = 0;
+    uint32_t lastUpdateMicros;
+
+    bool calibrated;
 };

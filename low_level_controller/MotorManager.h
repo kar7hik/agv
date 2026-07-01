@@ -5,33 +5,46 @@
 
 class MotorManager {
 public:
-    bool begin();
+    MotorManager();
+
+    void begin();
 
     void enableDrivers();
     void disableDrivers();
-    bool driversEnabled() const;
 
-    void setMotorFrequencies(float leftHz, float rightHz);
     void stopMotors();
 
-    float getLeftFrequencyHz() const;
-    float getRightFrequencyHz() const;
+    void setLeftFrequency(float freqHz);
+    void setRightFrequency(float freqHz);
+    void setFrequencies(float leftFreqHz, float rightFreqHz);
+
+    float getLeftFrequency() const;
+    float getRightFrequency() const;
+
+    bool areDriversEnabled() const;
 
 private:
     static void IRAM_ATTR onLeftTimer();
     static void IRAM_ATTR onRightTimer();
 
-    void setLeftFrequency(float frequencyHz);
-    void setRightFrequency(float frequencyHz);
-    void stopLeftMotor();
-    void stopRightMotor();
+    void setupPins();
+    void setupTimers();
 
-    static hw_timer_t* _leftTimer;
-    static hw_timer_t* _rightTimer;
-    static volatile bool _leftStepState;
-    static volatile bool _rightStepState;
+    void applyLeftFrequency(float freqHz);
+    void applyRightFrequency(float freqHz);
 
-    bool _driversEnabled = false;
-    float _leftFrequencyHz = 0.0f;
-    float _rightFrequencyHz = 0.0f;
+    float limitFrequency(float freqHz) const;
+    bool isZeroFrequency(float freqHz) const;
+
+private:
+    static hw_timer_t* leftTimer;
+    static hw_timer_t* rightTimer;
+
+    static volatile bool leftStepState;
+    static volatile bool rightStepState;
+
+    float leftFrequencyHz;
+    float rightFrequencyHz;
+
+    bool driversEnabled;
 };

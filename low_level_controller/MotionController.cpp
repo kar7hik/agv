@@ -1,129 +1,202 @@
 #include "MotionController.h"
-#include <math.h>
 
-namespace {
-constexpr uint8_t NAV_FLAG_HEADING_VALID = 1 << 0;
-constexpr uint8_t NAV_FLAG_LATERAL_VALID = 1 << 1;
-constexpr uint8_t NAV_FLAG_ESTOP = 1 << 2;
+MotionController::MotionController(MotorManager& motorManager, ImuManager& imuManager):
+    motor(motorManager),imu(imuManager), mode(Mode::Stopped), commandVelocityMps(0.0f),
+    visualHeadingErrorDeg(0.0f), visualLateralErrorM(0.0f), targetHeadingDeg(0.0f),
+    imuHeadingErrorDeg(0.0f), leftFrequencyHz(0.0f), rightFrequencyHz(0.0f),
+    lastUpdateMicros(0), lastVisualCorrectionMillis(0){}
+
+void MotionController::begin(){
+    mode = Mode::Stopped;
+
+    commandVelocityMps = 0.0f;
+
+    visualHeadingErrorDeg = 0.0f;
+    visualLateralErrorM = 0.0f;
+
+    targetHeadingDeg = imu.getHeadingDeg();
+    imuHeadingErrorDeg = 0.0f;
+
+    leftFrequencyHz = 0.0f;
+    rightFrequencyHz = 0.0f;
+
+    lastUpdateMicros = micros();
+    lastVisualCorrectionMillis = millis();
+
+    motor.stopMotors();
 }
 
-bool MotionController::begin(MotorManager* motorManager, ImuManager* imuManager) {
-    if (motorManager == nullptr || imuManager == nullptr) {
-        return false;
-    }
+void MotionController::setNavigationCommand(float velocityMps, float headingErrorDeg, float lateralErrorM){
+    commandVelocityMps = limitVelocity(velocityMps);
 
-    _motorManager = motorManager;
-    _imuManager = imuManager;
-    _mode = MotionMode::Idle;
-    _lastCommandMillis = millis();
-    _lastControlMicros = micros();
-    return true;
+    visualHeadingErrorDeg = headingErrorDeg;
+    visualLateralErrorM = lateralErrorM;
+
+    lastVisualCorrectionMillis = millis();
+
+    // Every packet from Pi is treated as fresh visual correction.
+    // Correction will be used only until VISUAL_CORRECTION_TIMEOUT_MS expires.
+    mode = Mode::VisualCorrection;
 }
 
-void MotionController::update() {
-    if (_motorManager == nullptr) {
+void MotionController::update(){
+    uint32_t now = micros();
+
+    if ((now - lastUpdateMicros) < Config::CONTROL_PERIOD_US) {
         return;
     }
 
-    const uint32_t nowUs = micros();
-    if ((nowUs - _lastControlMicros) < Config::CONTROL_PERIOD_US) {
-        return;
-    }
-    _lastControlMicros = nowUs;
+    lastUpdateMicros = now;
 
-    if (_mode == MotionMode::Fault || _mode == MotionMode::Stopped || _mode == MotionMode::Idle) {
-        _motorManager->stopMotors();
+    if (mode == Mode::Stopped) {
+        motor.stopMotors();
         return;
     }
 
-    if ((millis() - _lastCommandMillis) > Config::COMMAND_TIMEOUT_MS) {
-        stop();
-        return;
+    float baseFreqHz = velocityToFrequency(commandVelocityMps);
+    float steeringHz = 0.0f;
+
+    if (mode == Mode::VisualCorrection) {
+        if (isVisualCorrectionFresh()) {
+            steeringHz = computeVisualSteeringHz();
+        } else {
+            switchToImuHeadingHold();
+            steeringHz = computeImuHeadingHoldSteeringHz();
+        }
+    } else if (mode == Mode::ImuHeadingHold) {
+        steeringHz = computeImuHeadingHoldSteeringHz();
     }
 
-    if ((_navCommand.flags & NAV_FLAG_ESTOP) != 0) {
-        stop();
-        return;
+    steeringHz = limitSteering(steeringHz);
+
+    leftFrequencyHz = baseFreqHz - steeringHz;
+    rightFrequencyHz = baseFreqHz + steeringHz;
+
+    motor.setFrequencies(leftFrequencyHz, rightFrequencyHz);
+}
+
+void MotionController::stop(){
+    mode = Mode::Stopped;
+
+    commandVelocityMps = 0.0f;
+
+    visualHeadingErrorDeg = 0.0f;
+    visualLateralErrorM = 0.0f;
+
+    imuHeadingErrorDeg = 0.0f;
+
+    leftFrequencyHz = 0.0f;
+    rightFrequencyHz = 0.0f;
+
+    motor.stopMotors();
+}
+
+void MotionController::switchToImuHeadingHold(){
+    /*
+        Locked rule:
+
+        AprilTag heading is truth while visible.
+        IMU is only used to hold direction between tags.
+
+        When visual correction expires, do not force IMU heading to zero.
+        Whatever IMU reads at that moment becomes the new straight reference.
+    */
+    targetHeadingDeg = imu.getHeadingDeg();
+
+    visualHeadingErrorDeg = 0.0f;
+    visualLateralErrorM = 0.0f;
+
+    imuHeadingErrorDeg = 0.0f;
+
+    mode = Mode::ImuHeadingHold;
+}
+
+bool MotionController::isVisualCorrectionFresh() const{
+    return (millis() - lastVisualCorrectionMillis) <= Config::VISUAL_CORRECTION_TIMEOUT_MS;
+}
+
+float MotionController::computeVisualSteeringHz() const{
+    float steeringHz = Config::STEERING_DIRECTION *(Config::HEADING_KP_HZ_PER_DEG * visualHeadingErrorDeg + Config::LATERAL_KP_HZ_PER_M * visualLateralErrorM);
+
+    return steeringHz;
+}
+
+float MotionController::computeImuHeadingHoldSteeringHz(){
+    imuHeadingErrorDeg = normalizeAngle(targetHeadingDeg - imu.getHeadingDeg());
+
+    float steeringHz = Config::STEERING_DIRECTION *(Config::HEADING_KP_HZ_PER_DEG * imuHeadingErrorDeg);
+
+    return steeringHz;
+}
+
+float MotionController::limitVelocity(float velocityMps) const{
+    if (velocityMps > Config::MAX_VELOCITY_MPS) {
+        return Config::MAX_VELOCITY_MPS;
     }
 
-    const float velocity = constrain(_navCommand.velocityMps,
-                                     -Config::MAX_VELOCITY_MPS,
-                                      Config::MAX_VELOCITY_MPS);
-
-    _baseFrequencyHz = velocityMpsToStepHz(velocity);
-
-    const float headingTerm = ((_navCommand.flags & NAV_FLAG_HEADING_VALID) != 0)
-        ? Config::HEADING_KP_HZ_PER_DEG * _navCommand.headingErrorDeg
-        : 0.0f;
-
-    const float lateralTerm = ((_navCommand.flags & NAV_FLAG_LATERAL_VALID) != 0)
-        ? Config::LATERAL_KP_HZ_PER_M * _navCommand.lateralErrorM
-        : 0.0f;
-
-    _steeringHz = Config::STEERING_DIRECTION * constrain(headingTerm + lateralTerm,
-                                                         -Config::MAX_STEERING_HZ,
-                                                          Config::MAX_STEERING_HZ);
-
-    const float leftHz = _baseFrequencyHz - _steeringHz;
-    const float rightHz = _baseFrequencyHz + _steeringHz;
-
-    _motorManager->setMotorFrequencies(leftHz, rightHz);
-}
-
-void MotionController::setNavigationCommand(const NavigationCommand& command) {
-    _navCommand = command;
-    _lastCommandMillis = millis();
-
-    if (_mode != MotionMode::Fault && _mode != MotionMode::Stopped) {
-        _mode = MotionMode::NavigationControl;
+    if (velocityMps < -Config::MAX_VELOCITY_MPS) {
+        return -Config::MAX_VELOCITY_MPS;
     }
+
+    return velocityMps;
 }
 
-void MotionController::stop() {
-    _mode = MotionMode::Stopped;
-    _baseFrequencyHz = 0.0f;
-    _steeringHz = 0.0f;
-    if (_motorManager != nullptr) {
-        _motorManager->stopMotors();
+float MotionController::limitSteering(float steeringHz) const{
+    if (steeringHz > Config::MAX_STEERING_HZ) {
+        return Config::MAX_STEERING_HZ;
     }
-}
 
-void MotionController::enterIdle() {
-    _mode = MotionMode::Idle;
-    if (_motorManager != nullptr) {
-        _motorManager->stopMotors();
+    if (steeringHz < -Config::MAX_STEERING_HZ) {
+        return -Config::MAX_STEERING_HZ;
     }
+
+    return steeringHz;
 }
 
-void MotionController::setFault() {
-    _mode = MotionMode::Fault;
-    if (_motorManager != nullptr) {
-        _motorManager->stopMotors();
+float MotionController::velocityToFrequency(float velocityMps) const{
+    return velocityMps * Config::PULSES_PER_METER;
+}
+
+float MotionController::normalizeAngle(float angleDeg) const{
+    while (angleDeg > Config::HEADING_MAX_DEG) {
+        angleDeg -= Config::FULL_ROTATION_DEG;
     }
-}
 
-void MotionController::clearFault() {
-    if (_mode == MotionMode::Fault) {
-        _mode = MotionMode::Idle;
+    while (angleDeg < Config::HEADING_MIN_DEG) {
+        angleDeg += Config::FULL_ROTATION_DEG;
     }
+
+    return angleDeg;
 }
 
-MotionMode MotionController::getMode() const {
-    return _mode;
+MotionController::Mode MotionController::getMode() const{
+    return mode;
 }
 
-NavigationCommand MotionController::getNavigationCommand() const {
-    return _navCommand;
+float MotionController::getCommandVelocityMps() const{
+    return commandVelocityMps;
 }
 
-float MotionController::getBaseFrequencyHz() const {
-    return _baseFrequencyHz;
+float MotionController::getVisualHeadingErrorDeg() const{
+    return visualHeadingErrorDeg;
 }
 
-float MotionController::getSteeringHz() const {
-    return _steeringHz;
+float MotionController::getVisualLateralErrorM() const{
+    return visualLateralErrorM;
 }
 
-float MotionController::velocityMpsToStepHz(float velocityMps) {
-    return velocityMps * Config::STEPS_PER_METER;
+float MotionController::getTargetHeadingDeg() const{
+    return targetHeadingDeg;
+}
+
+float MotionController::getImuHeadingErrorDeg() const{
+    return imuHeadingErrorDeg;
+}
+
+float MotionController::getLeftFrequencyHz() const{
+    return leftFrequencyHz;
+}
+
+float MotionController::getRightFrequencyHz() const{
+    return rightFrequencyHz;
 }

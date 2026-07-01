@@ -1,279 +1,256 @@
 #include "SerialProtocol.h"
 
-namespace {
-constexpr uint8_t NAVIGATION_PAYLOAD_SIZE = 17;
-
-float readFloatLe(const uint8_t* data) {
-    float value = 0.0f;
-    memcpy(&value, data, sizeof(float));
-    return value;
+SerialProtocol::SerialProtocol(MotorManager& motorManager, ImuManager& imuManager, MotionController& motionController)
+    : motor(motorManager), imu(imuManager), motion(motionController),
+      commandIndex(0), lastCommandMillis(0), lastStatusMillis(0),
+      commandActive(false){
+        commandBuffer[0] = '\0';
 }
 
-uint32_t readU32Le(const uint8_t* data) {
-    return (static_cast<uint32_t>(data[0]) << 0) |
-           (static_cast<uint32_t>(data[1]) << 8) |
-           (static_cast<uint32_t>(data[2]) << 16) |
-           (static_cast<uint32_t>(data[3]) << 24);
+void SerialProtocol::begin(){
+    Serial.begin(Config::SERIAL_BAUD_RATE);
+    delay(1000);
+
+    lastCommandMillis = millis();
+    lastStatusMillis = millis();
+
+    Serial.println();
+    Serial.println("AGV ESP32 SerialProtocol Ready");
+    printHelp();
 }
 
-struct ImuCorrectionPayload {
-    float correctionDeg;
-};
+void SerialProtocol::update(){
+    readSerialCommand();
 
-struct StatusPayload {
-    uint8_t mode;
-    uint8_t imuInitialized;
-    uint8_t imuCalibrated;
-    uint8_t driversEnabled;
-    float headingDeg;
-    float gyroZDegPerSec;
-    float leftHz;
-    float rightHz;
-    float baseHz;
-    float steeringHz;
-};
+    if (commandActive) {
+        if (millis() - lastCommandMillis > Config::COMMAND_TIMEOUT_MS) {
+            motion.stop();
+            commandActive = false;
 
-struct HeadingPayload {
-    float headingDeg;
-    float gyroZDegPerSec;
-};
-}
-
-bool SerialProtocol::begin(HardwareSerial& serial,
-                           MotionController* motionController,
-                           ImuManager* imuManager,
-                           MotorManager* motorManager) {
-    if (motionController == nullptr || imuManager == nullptr || motorManager == nullptr) {
-        return false;
-    }
-
-    _serial = &serial;
-    _motionController = motionController;
-    _imuManager = imuManager;
-    _motorManager = motorManager;
-
-    _serial->begin(Config::SERIAL_BAUD);
-    resetRx();
-    return true;
-}
-
-void SerialProtocol::update() {
-    if (_serial == nullptr) {
-        return;
-    }
-
-    while (_serial->available() > 0) {
-        consumeByte(static_cast<uint8_t>(_serial->read()));
-    }
-}
-
-void SerialProtocol::sendStatusIfDue() {
-    const uint32_t now = millis();
-    if ((now - _lastStatusMillis) >= Config::STATUS_PERIOD_MS) {
-        _lastStatusMillis = now;
-        sendStatus();
-    }
-}
-
-void SerialProtocol::sendStatus() {
-    if (_motionController == nullptr || _imuManager == nullptr || _motorManager == nullptr) {
-        return;
-    }
-
-    StatusPayload payload;
-    payload.mode = static_cast<uint8_t>(_motionController->getMode());
-    payload.imuInitialized = _imuManager->isInitialized() ? 1 : 0;
-    payload.imuCalibrated = _imuManager->isCalibrated() ? 1 : 0;
-    payload.driversEnabled = _motorManager->driversEnabled() ? 1 : 0;
-    payload.headingDeg = _imuManager->getHeadingDeg();
-    payload.gyroZDegPerSec = _imuManager->getGyroZDegPerSec();
-    payload.leftHz = _motorManager->getLeftFrequencyHz();
-    payload.rightHz = _motorManager->getRightFrequencyHz();
-    payload.baseHz = _motionController->getBaseFrequencyHz();
-    payload.steeringHz = _motionController->getSteeringHz();
-
-    sendPacket(PacketType::Status, reinterpret_cast<const uint8_t*>(&payload), sizeof(payload));
-}
-
-void SerialProtocol::sendHeading() {
-    if (_imuManager == nullptr) {
-        return;
-    }
-
-    HeadingPayload payload;
-    payload.headingDeg = _imuManager->getHeadingDeg();
-    payload.gyroZDegPerSec = _imuManager->getGyroZDegPerSec();
-    sendPacket(PacketType::Heading, reinterpret_cast<const uint8_t*>(&payload), sizeof(payload));
-}
-
-void SerialProtocol::sendFault(uint8_t code) {
-    sendPacket(PacketType::Fault, &code, 1);
-}
-
-void SerialProtocol::resetRx() {
-    _rxState = RxState::WaitSof1;
-    _rxLength = 0;
-    _rxIndex = 0;
-}
-
-void SerialProtocol::consumeByte(uint8_t byte) {
-    switch (_rxState) {
-        case RxState::WaitSof1:
-            if (byte == Config::PACKET_SOF_1) {
-                _rxState = RxState::WaitSof2;
-            }
-            break;
-
-        case RxState::WaitSof2:
-            _rxState = (byte == Config::PACKET_SOF_2) ? RxState::ReadType : RxState::WaitSof1;
-            break;
-
-        case RxState::ReadType:
-            _rxType = static_cast<PacketType>(byte);
-            _rxState = RxState::ReadLength;
-            break;
-
-        case RxState::ReadLength:
-            _rxLength = byte;
-            if (_rxLength > Config::MAX_PAYLOAD_SIZE) {
-                resetRx();
-            } else if (_rxLength == 0) {
-                _rxState = RxState::ReadChecksum;
-            } else {
-                _rxIndex = 0;
-                _rxState = RxState::ReadPayload;
-            }
-            break;
-
-        case RxState::ReadPayload:
-            _rxPayload[_rxIndex++] = byte;
-            if (_rxIndex >= _rxLength) {
-                _rxState = RxState::ReadChecksum;
-            }
-            break;
-
-        case RxState::ReadChecksum: {
-            const uint8_t expected = checksum(_rxType, _rxLength, _rxPayload);
-            if (byte == expected) {
-                handlePacket(_rxType, _rxPayload, _rxLength);
-            } else {
-                sendFault(1); // checksum error
-            }
-            resetRx();
-            break;
+            Serial.println("FAULT command timeout");
         }
     }
 }
 
-void SerialProtocol::handlePacket(PacketType type, const uint8_t* payload, uint8_t length) {
-    switch (type) {
-        case PacketType::Navigation: {
-            if (length != NAVIGATION_PAYLOAD_SIZE) {
-                sendFault(2);
-                return;
-            }
-
-            NavigationCommand command;
-            command.velocityMps = readFloatLe(&payload[0]);
-            command.headingErrorDeg = readFloatLe(&payload[4]);
-            command.lateralErrorM = readFloatLe(&payload[8]);
-            command.flags = payload[12];
-            command.timestampMs = readU32Le(&payload[13]);
-
-            _motionController->setNavigationCommand(command);
-            sendAck(type);
-            break;
-        }
-
-        case PacketType::Stop:
-            if (length != 0) {
-                sendFault(2);
-                return;
-            }
-            _motionController->stop();
-            sendAck(type);
-            break;
-
-        case PacketType::ImuCalibrate:
-            if (length != 0) {
-                sendFault(2);
-                return;
-            }
-            if (_imuManager->calibrate()) {
-                sendPacket(PacketType::ImuCalibrated, nullptr, 0);
-            } else {
-                _motionController->setFault();
-                sendFault(3);
-            }
-            break;
-
-        case PacketType::EnableMotors:
-            if (length != 0) {
-                sendFault(2);
-                return;
-            }
-            _motorManager->enableDrivers();
-            _motionController->enterIdle();
-            sendAck(type);
-            break;
-
-        case PacketType::DisableMotors:
-            if (length != 0) {
-                sendFault(2);
-                return;
-            }
-            _motionController->stop();
-            _motorManager->disableDrivers();
-            sendAck(type);
-            break;
-
-        case PacketType::Ping:
-            sendPacket(PacketType::Pong, nullptr, 0);
-            break;
-
-        case PacketType::ImuCorrection: {
-            ImuCorrectionPayload correction;
-            if (!readPayloadObject(payload, length, correction)) {
-                sendFault(2);
-                return;
-            }
-            _imuManager->applyHeadingCorrectionDeg(correction.correctionDeg);
-            sendAck(type);
-            break;
-        }
-
-        default:
-            sendFault(4); // unsupported packet
-            break;
+void SerialProtocol::sendStatusIfDue(){
+    if (millis() - lastStatusMillis >= Config::STATUS_PERIOD_MS) {
+        lastStatusMillis = millis();
+        printStatus();
     }
 }
 
-void SerialProtocol::sendAck(PacketType commandType) {
-    const uint8_t payload = static_cast<uint8_t>(commandType);
-    sendPacket(PacketType::Ack, &payload, 1);
+void SerialProtocol::readSerialCommand(){
+    while (Serial.available() > 0) {
+        char c = static_cast<char>(Serial.read());
+
+        if (c == '\r') {
+            continue;
+        }
+
+        if (c == '\n') {
+            commandBuffer[commandIndex] = '\0';
+
+            if (commandIndex > 0) {
+                processCommand(commandBuffer);
+            }
+
+            commandIndex = 0;
+            return;
+        }
+
+        if (commandIndex < sizeof(commandBuffer) - 1) {
+            commandBuffer[commandIndex] = c;
+            commandIndex++;
+        } else {
+            commandIndex = 0;
+            commandBuffer[0] = '\0';
+            Serial.println("ERR command too long");
+        }
+    }
 }
 
-void SerialProtocol::sendPacket(PacketType type, const uint8_t* payload, uint8_t length) {
-    if (_serial == nullptr || length > Config::MAX_PAYLOAD_SIZE) {
+void SerialProtocol::processCommand(char* line){
+    char* cmd = strtok(line, " ");
+
+    if (cmd == nullptr) {
         return;
     }
 
-    _serial->write(Config::PACKET_SOF_1);
-    _serial->write(Config::PACKET_SOF_2);
-    _serial->write(static_cast<uint8_t>(type));
-    _serial->write(length);
-
-    for (uint8_t i = 0; i < length; ++i) {
-        _serial->write(payload[i]);
+    if (strcmp(cmd, "HELP") == 0 || strcmp(cmd, "help") == 0) {
+        printHelp();
+        return;
     }
 
-    _serial->write(checksum(type, length, payload));
+    if (strcmp(cmd, "PING") == 0 || strcmp(cmd, "ping") == 0) {
+        Serial.println("ACK PING");
+        return;
+    }
+
+    if (strcmp(cmd, "EN") == 0 || strcmp(cmd, "en") == 0) {
+        motor.enableDrivers();
+        Serial.println("ACK EN");
+        return;
+    }
+
+    if (strcmp(cmd, "DIS") == 0 || strcmp(cmd, "dis") == 0) {
+        motion.stop();
+        motor.disableDrivers();
+        commandActive = false;
+
+        Serial.println("ACK DIS");
+        return;
+    }
+
+    if (strcmp(cmd, "STOP") == 0 || strcmp(cmd, "stop") == 0) {
+        motion.stop();
+        commandActive = false;
+
+        Serial.println("ACK STOP");
+        return;
+    }
+
+    if (strcmp(cmd, "CAL") == 0 || strcmp(cmd, "cal") == 0) {
+        motion.stop();
+        commandActive = false;
+
+        Serial.println("ACK CAL START");
+        Serial.println("Keep robot stationary");
+
+        imu.calibrate();
+
+        Serial.println("ACK CAL DONE");
+        return;
+    }
+
+    if (strcmp(cmd, "ZERO") == 0 || strcmp(cmd, "zero") == 0) {
+        imu.resetHeading();
+
+        Serial.println("ACK ZERO");
+        return;
+    }
+
+    if (strcmp(cmd, "STATUS") == 0 || strcmp(cmd, "status") == 0) {
+        printStatus();
+        return;
+    }
+
+    if (strcmp(cmd, "VEL") == 0 || strcmp(cmd, "vel") == 0) {
+        handleVelocityCommand();
+        return;
+    }
+
+    Serial.print("ERR unknown command: ");
+    Serial.println(cmd);
 }
 
-uint8_t SerialProtocol::checksum(PacketType type, uint8_t length, const uint8_t* payload) {
-    uint8_t sum = static_cast<uint8_t>(type) ^ length;
-    for (uint8_t i = 0; i < length; ++i) {
-        sum ^= payload[i];
+void SerialProtocol::handleVelocityCommand(){
+    char* velStr = strtok(nullptr, " ");
+    char* headingStr = strtok(nullptr, " ");
+    char* lateralStr = strtok(nullptr, " ");
+
+    if (velStr == nullptr || headingStr == nullptr || lateralStr == nullptr) {
+        Serial.println("ERR usage: VEL velocity headingError lateralError");
+        Serial.println("Example: VEL 0.05 -3 0.01");
+        return;
     }
-    return sum;
+
+    float velocityMps = atof(velStr);
+    float headingErrorDeg = atof(headingStr);
+    float lateralErrorM = atof(lateralStr);
+
+    motor.enableDrivers();
+
+    motion.setNavigationCommand(
+        velocityMps,
+        headingErrorDeg,
+        lateralErrorM
+    );
+
+    lastCommandMillis = millis();
+
+    if (fabsf(velocityMps) > 0.0f) {
+        commandActive = true;
+    } else {
+        commandActive = false;
+    }
+
+    Serial.print("ACK VEL ");
+    Serial.print(velocityMps, 3);
+    Serial.print(" ");
+    Serial.print(headingErrorDeg, 3);
+    Serial.print(" ");
+    Serial.println(lateralErrorM, 4);
+}
+
+void SerialProtocol::printStatus(){
+    Serial.print("STATUS ");
+
+    Serial.print("mode=");
+
+    MotionController::Mode mode = motion.getMode();
+
+    if (mode == MotionController::Mode::Stopped) {
+        Serial.print("STOPPED");
+    } else if (mode == MotionController::Mode::VisualCorrection) {
+        Serial.print("VISUAL");
+    } else if (mode == MotionController::Mode::ImuHeadingHold) {
+        Serial.print("IMU_HOLD");
+    }
+
+    Serial.print(" en=");
+    Serial.print(motor.areDriversEnabled() ? 1 : 0);
+
+    Serial.print(" imuCal=");
+    Serial.print(imu.isCalibrated() ? 1 : 0);
+
+    Serial.print(" imu=");
+    Serial.print(imu.getHeadingDeg(), 2);
+
+    Serial.print(" gyroZ=");
+    Serial.print(imu.getGyroZDegPerSec(), 2);
+
+    Serial.print(" target=");
+    Serial.print(motion.getTargetHeadingDeg(), 2);
+
+    Serial.print(" imuErr=");
+    Serial.print(motion.getImuHeadingErrorDeg(), 2);
+
+    Serial.print(" vel=");
+    Serial.print(motion.getCommandVelocityMps(), 3);
+
+    Serial.print(" visualH=");
+    Serial.print(motion.getVisualHeadingErrorDeg(), 2);
+
+    Serial.print(" visualL=");
+    Serial.print(motion.getVisualLateralErrorM(), 4);
+
+    Serial.print(" L=");
+    Serial.print(motion.getLeftFrequencyHz(), 1);
+
+    Serial.print(" R=");
+    Serial.println(motion.getRightFrequencyHz(), 1);
+}
+
+void SerialProtocol::printHelp(){
+    Serial.println();
+    Serial.println("Commands:");
+    Serial.println("  HELP");
+    Serial.println("  PING");
+    Serial.println("  EN");
+    Serial.println("  DIS");
+    Serial.println("  STOP");
+    Serial.println("  CAL");
+    Serial.println("  ZERO");
+    Serial.println("  STATUS");
+    Serial.println("  VEL velocity headingError lateralError");
+    Serial.println();
+    Serial.println("Examples:");
+    Serial.println("  PING");
+    Serial.println("  EN");
+    Serial.println("  CAL");
+    Serial.println("  VEL 0.05 0 0");
+    Serial.println("  VEL 0.05 -3 0.01");
+    Serial.println("  VEL 0 0 0");
+    Serial.println("  STOP");
+    Serial.println();
 }
