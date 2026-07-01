@@ -1,54 +1,71 @@
 #pragma once
 
 #include <Arduino.h>
+#include <math.h>
+
 #include "Config.h"
 #include "MotorManager.h"
 #include "ImuManager.h"
 
-enum class MotionMode : uint8_t {
-    Idle = 0,
-    NavigationControl = 1,
-    ImuTurn = 2,
-    Stopped = 3,
-    Fault = 4
-};
-
-struct NavigationCommand {
-    float velocityMps = 0.0f;
-    float headingErrorDeg = 0.0f;
-    float lateralErrorM = 0.0f;
-    uint8_t flags = 0;
-    uint32_t timestampMs = 0;
-};
-
 class MotionController {
 public:
-    bool begin(MotorManager* motorManager, ImuManager* imuManager);
+    enum class Mode : uint8_t {Stopped, VisualCorrection, ImuHeadingHold};
+
+public:
+    MotionController(MotorManager& motorManager, ImuManager& imuManager);
+
+    void begin();
     void update();
 
-    void setNavigationCommand(const NavigationCommand& command);
-    void stop();
-    void enterIdle();
-    void setFault();
-    void clearFault();
+    // Raspberry Pi sends only these three values.
+    void setNavigationCommand(float velocityMps, float headingErrorDeg, float lateralErrorM);
 
-    MotionMode getMode() const;
-    NavigationCommand getNavigationCommand() const;
-    float getBaseFrequencyHz() const;
-    float getSteeringHz() const;
+    void stop();
+
+    Mode getMode() const;
+
+    float getCommandVelocityMps() const;
+
+    float getVisualHeadingErrorDeg() const;
+    float getVisualLateralErrorM() const;
+
+    float getTargetHeadingDeg() const;
+    float getImuHeadingErrorDeg() const;
+
+    float getLeftFrequencyHz() const;
+    float getRightFrequencyHz() const;
 
 private:
-    static float velocityMpsToStepHz(float velocityMps);
+    float limitVelocity(float velocityMps) const;
+    float limitSteering(float steeringHz) const;
 
-    MotorManager* _motorManager = nullptr;
-    ImuManager* _imuManager = nullptr;
+    float velocityToFrequency(float velocityMps) const;
+    float normalizeAngle(float angleDeg) const;
 
-    MotionMode _mode = MotionMode::Idle;
-    NavigationCommand _navCommand;
+    bool isVisualCorrectionFresh() const;
 
-    uint32_t _lastCommandMillis = 0;
-    uint32_t _lastControlMicros = 0;
+    float computeVisualSteeringHz() const;
+    float computeImuHeadingHoldSteeringHz();
 
-    float _baseFrequencyHz = 0.0f;
-    float _steeringHz = 0.0f;
+    void switchToImuHeadingHold();
+
+private:
+    MotorManager& motor;
+    ImuManager& imu;
+
+    Mode mode;
+
+    float commandVelocityMps;
+
+    float visualHeadingErrorDeg;
+    float visualLateralErrorM;
+
+    float targetHeadingDeg;
+    float imuHeadingErrorDeg;
+
+    float leftFrequencyHz;
+    float rightFrequencyHz;
+
+    uint32_t lastUpdateMicros;
+    uint32_t lastVisualCorrectionMillis;
 };
