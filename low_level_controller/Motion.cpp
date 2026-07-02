@@ -80,8 +80,6 @@ NavigationCommand Motion::getNavigationCommand() const {
 }
 
 float Motion::getHeadingError() const {
-    Serial.println("headingErrorDeg: ");
-    Serial.println(headingErrorDeg);
     return headingErrorDeg;
 }
 
