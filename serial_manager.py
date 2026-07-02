@@ -8,6 +8,7 @@ class SerialManager:
             baudrate,
             timeout=0.2,
         )
+        time.sleep(2)
 
         self.serial.reset_input_buffer()
         self.serial.reset_output_buffer()
@@ -60,12 +61,16 @@ class SerialManager:
         self.serial.write(b"STATUS\n")
         return self.read_line()
 
-    def wait_for_ack(self):
-        while True:
+    def wait_for_ack(self, timeout=5.0):
+        end = time.monotonic() + timeout
+
+        while time.monotonic() < end:
             line = self.read_line()
 
             if line is None:
-                return False
+                continue
+
+            print("RX:", line)
 
             if line == "ACK":
                 return True
@@ -73,8 +78,12 @@ class SerialManager:
             if line.startswith("ERR"):
                 return False
 
+        return False
+
     def read_line(self):
-        if self.serial.in_waiting == 0:
+        line = self.serial.readline()
+
+        if not line:
             return None
 
-        return self.serial.readline().decode().strip()
+        return line.decode().strip()
