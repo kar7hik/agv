@@ -85,9 +85,9 @@ constexpr float HEADING_KP = 0.2f;
 constexpr float HEADING_KI = 0.0f;
 constexpr float HEADING_KD = 0.0f;
 
-constexpr float LATERAL_KP = 0.02f;
+constexpr float LATERAL_KP = 10.0f;
 
-constexpr float MAX_STEERING = 0.05f;
+constexpr float MAX_STEERING = 0.5f;
 
 constexpr float STEERING_DIRECTION = 1.0f;
 

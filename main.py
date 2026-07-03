@@ -1,4 +1,4 @@
-import cv2
+\import cv2
 
 from camera import Camera
 from detector import AprilTagDetector
@@ -20,54 +20,53 @@ def main():
     world = LandmarkMap("./maps/testbed.json")
 
     localization = Localization(world)
-
     navigation = Navigation(world)
     navigation.set_target(1)
-    navigation.set_velocity(0.05)
+    navigation.set_velocity(0.05)  # 0.05 m/s = 50 mm/s
 
     serial = SerialManager("/dev/ttyUSB0")
 
     camera.start()
 
-    # if not serial.ping():
-    #     print("Unable to communicate with low-level controller.")
-    #     return
-
     started = False
+    last_current_landmark = None
 
     print("==========================================")
     print("Robot Ready")
     print("Place the robot at Landmark 0.")
-    print("Align it with the corridor.")
-    print("Press 's' to calibrate and start.")
+    print("Align it with the corridor (facing North).")
+    print("Press 's' to start.")
     print("Press 'q' to quit.")
     print("==========================================")
 
     try:
         while True:
-
             frame = camera.get_frame()
-
             detections = detector.detect(frame)
-
             geometry.update(detections)
-
             localization.update(detections)
-
             navigation.update(localization)
 
-            if started and navigation.valid():
+            if started:
+                # --- Trigger MOVE/STOP on landmark transitions ---
+                if navigation.current is not None and navigation.current != last_current_landmark:
+                    if navigation.current == navigation.target:
+                        print(f"Reached target landmark {navigation.current}.")
+                        serial.stop_move()
+                    elif navigation.next is not None:
+                        print(f"Arrived at {navigation.current}, moving to {navigation.next}")
+                        serial.start_move()
+                    last_current_landmark = navigation.current
 
-                velocity = navigation.velocity
+                # --- Send goals to ESP32 (it computes corrections internally) ---
+                if navigation.desired_heading is not None:
+                    # Lateral error: convert meters → mm, default to 0 if tag lost
+                    lat_mm = (navigation.lateral_error * 1000.0) if navigation.lateral_error is not None else 0.0
 
-                if navigation.current == navigation.target:
-                    velocity = 0.0
-
-                serial.send_velocity(
-                    velocity,
-                    navigation.desired_heading,
-                    navigation.lateral_error,
-                )
+                    serial.send_goals(
+                        desired_heading_deg=navigation.desired_heading,
+                        lateral_error_mm=lat_mm,
+                    )
 
             viewer.draw(frame, detections)
             viewer.show(frame)
@@ -78,7 +77,6 @@ def main():
                 break
 
             if key == ord("s") and not started:
-
                 if not localization.valid():
                     print("No valid localization. Cannot start.")
                     continue
@@ -87,34 +85,18 @@ def main():
                     print("Robot must be positioned at Landmark 0.")
                     continue
 
-                print("Calibrating IMU...")
-
-                if not serial.calibrate():
-                    print("IMU calibration failed.")
-                    continue
-
-                print("Zeroing heading...")
-
-                if not serial.zero_heading():
-                    print("Failed to zero heading.")
-                    continue
-
-                print("Enabling motors...")
-
-                if not serial.enable():
-                    print("Failed to enable motors.")
-                    continue
+                # ESP32 auto-calibrates and zeros heading on boot.
+                # Just set the speed and go.
+                serial.set_speed(navigation.velocity * 1000.0)  # m/s → mm/s
+                serial.drain_input()
 
                 started = True
-
+                last_current_landmark = localization.landmark["id"]
                 print("Autonomous navigation started.")
 
     finally:
-
-        serial.stop()
-        serial.disable()
+        serial.stop_move()
         serial.close()
-
         camera.release()
         viewer.close()
 

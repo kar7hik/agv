@@ -106,6 +106,12 @@ void Stepper::setMotion(float linearVelocityMps,
     const float rightVelocity =
         linearVelocityMps + (angularVelocity * halfTrack);
 
+    Serial.print("Left: ");
+    Serial.print(leftVelocity);
+    Serial.print(" Right: ");
+    Serial.println(rightVelocity);
+
+
     setLeftVelocity(leftVelocity);
     setRightVelocity(rightVelocity);
 }

@@ -4,87 +4,35 @@ import time
 
 class SerialManager:
     def __init__(self, port, baudrate=115200):
-        self.serial = serial.Serial(
-            port,
-            baudrate,
-            timeout=0.2,
-        )
-        time.sleep(2)
-
+        self.serial = serial.Serial(port, baudrate, timeout=0.1)
+        time.sleep(2)  # Wait for ESP32 to boot and calibrate IMU
         self.serial.reset_input_buffer()
         self.serial.reset_output_buffer()
 
     def close(self):
         self.serial.close()
 
-    def send_velocity(
-        self,
-        velocity_mps,
-        desired_heading_deg,
-        lateral_error_m,
-    ):
-        command = (
-            f"VEL "
-            f"{velocity_mps:.3f} "
-            f"{desired_heading_deg:.2f} "
-            f"{lateral_error_m:.4f}\n"
-        )
+    def send_goals(self, desired_heading_deg, lateral_error_mm):
+        """
+        Send the navigation goals to ESP32.
+        - desired_heading_deg: absolute heading in map frame (North=0, East=90, ...)
+        - lateral_error_mm: lateral offset from tag in mm (positive = tag to right)
+        """
+        cmd_head = f"HEAD {desired_heading_deg:.2f}\n"
+        cmd_lat = f"LAT {lateral_error_mm:.1f}\n"
+        self.serial.write(cmd_head.encode())
+        self.serial.write(cmd_lat.encode())
 
-        self.serial.write(command.encode())
+    def start_move(self):
+        self.serial.write(b"MOVE\n")
 
-        return self.wait_for_ack()
-
-    def enable(self):
-        self.serial.write(b"EN\n")
-        return self.wait_for_ack()
-
-    def disable(self):
-        self.serial.write(b"DIS\n")
-        return self.wait_for_ack()
-
-    def stop(self):
+    def stop_move(self):
         self.serial.write(b"STOP\n")
-        return self.wait_for_ack()
 
-    def ping(self):
-        self.serial.write(b"PING\n")
-        return self.wait_for_ack()
+    def set_speed(self, speed_mm_s):
+        cmd = f"SPD {speed_mm_s:.1f}\n"
+        self.serial.write(cmd.encode())
 
-    def zero_heading(self):
-        self.serial.write(b"ZERO\n")
-        return self.wait_for_ack()
-
-    def calibrate(self):
-        self.serial.write(b"CAL\n")
-        return self.wait_for_ack()
-
-    def request_status(self):
-        self.serial.write(b"STATUS\n")
-        return self.read_line()
-
-    def wait_for_ack(self, timeout=5.0):
-        end = time.monotonic() + timeout
-
-        while time.monotonic() < end:
-            line = self.read_line()
-
-            if line is None:
-                continue
-
-            print("RX:", line)
-
-            if line == "ACK":
-                return True
-
-            if line.startswith("ERR"):
-                return False
-
-        return False
-
-    def read_line(self):
-        line = self.serial.readline()
-
-        if not line:
-            return None
-
-        return line.decode().strip()
+    def drain_input(self):
+        """Discard any pending debug output from ESP32"""
+        self.serial.reset_input_buffer()
