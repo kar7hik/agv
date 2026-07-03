@@ -24,13 +24,13 @@ APRILTAG_FAMILY = "tag36h11"
 MAP_FILE = "./maps/testbed.json"
 SERIAL_PORT = "/dev/ttyUSB0"
 
-HELPER_SPACING_M = 0.015  # 15mm between helper tags
-CORRECTION_DISTANCE_MM = 350.0  # Fixed distance for atan-based steering
-SEGMENT_TIMEOUT_S = 60.0  # Per-segment timeout
+HELPER_SPACING_M = 0.015
+CORRECTION_DISTANCE_MM = 350.0
+SEGMENT_TIMEOUT_S = 60.0
 
 
 # ============================================================================
-# CAMERA
+# CAMERA & DETECTOR
 # ============================================================================
 def create_camera():
     cam = Picamera2()
@@ -55,9 +55,6 @@ def get_frame(cam):
     return cam.capture_array()
 
 
-# ============================================================================
-# DETECTOR
-# ============================================================================
 def create_detector():
     return Detector(
         families=APRILTAG_FAMILY,
@@ -71,10 +68,7 @@ def create_detector():
 def detect_tags(detector, frame):
     gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
     return detector.detect(
-        gray,
-        estimate_tag_pose=True,
-        camera_params=CAMERA_PARAMS,
-        tag_size=TAG_SIZE_M,
+        gray, estimate_tag_pose=True, camera_params=CAMERA_PARAMS, tag_size=TAG_SIZE_M
     )
 
 
@@ -92,14 +86,13 @@ def normalize_angle(angle):
 def compute_tag_heading(detection):
     if detection.pose_R is None:
         return None
-    R = detection.pose_R
-    return normalize_angle(math.degrees(math.atan2(R[1, 0], R[0, 0])))
+    return normalize_angle(
+        math.degrees(math.atan2(detection.pose_R[1, 0], detection.pose_R[0, 0]))
+    )
 
 
 def compute_tag_lateral(detection):
-    if detection.pose_t is None:
-        return None
-    return float(detection.pose_t[0][0])
+    return float(detection.pose_t[0][0]) if detection.pose_t is not None else None
 
 
 def enrich_detections(detections):
@@ -109,7 +102,6 @@ def enrich_detections(detections):
 
 
 def get_tag_x_offset_from_center(position_name):
-    """X (lateral) offset of a helper tag from the landmark center, in meters."""
     offsets = {
         "center": 0.0,
         "north": 0.0,
@@ -125,10 +117,6 @@ def get_tag_x_offset_from_center(position_name):
 
 
 def correct_lateral_to_center(detection, position_name):
-    """
-    Compensate for the helper tag's offset from the landmark center.
-    Returns the estimated lateral error (in meters) to the CENTER tag.
-    """
     if (
         detection.pose_t is None
         or detection.pose_R is None
@@ -137,15 +125,9 @@ def correct_lateral_to_center(detection, position_name):
         return detection.lateral
     if position_name == "center":
         return detection.lateral
-
     x_offset_lm = get_tag_x_offset_from_center(position_name)
-
-    # R transforms camera -> landmark, so R.T transforms landmark -> camera
-    R = detection.pose_R
-    offset_cam = R.T @ np.array([x_offset_lm, 0.0, 0.0])
-    x_offset_cam = offset_cam[0]
-
-    return detection.lateral - x_offset_cam
+    offset_cam = detection.pose_R.T @ np.array([x_offset_lm, 0.0, 0.0])
+    return detection.lateral - offset_cam[0]
 
 
 # ============================================================================
@@ -154,7 +136,6 @@ def correct_lateral_to_center(detection, position_name):
 def load_landmark_map(filename):
     with open(filename, "r") as f:
         data = json.load(f)
-
     graph = nx.Graph()
     for lm in data["landmarks"]:
         graph.add_node(
@@ -166,7 +147,6 @@ def load_landmark_map(filename):
             type=lm["type"],
             tags=lm["tags"],
         )
-
     nodes = list(graph.nodes)
     for src in nodes:
         r1, c1 = graph.nodes[src]["row"], graph.nodes[src]["column"]
@@ -176,7 +156,6 @@ def load_landmark_map(filename):
             r2, c2 = graph.nodes[dst]["row"], graph.nodes[dst]["column"]
             if abs(r2 - r1) + abs(c2 - c1) == 1:
                 graph.add_edge(src, dst, weight=1)
-
     return graph, data
 
 
@@ -193,8 +172,9 @@ def find_path(graph, start_id, goal_id):
         return []
 
     def heuristic(a, b):
-        la, lb = graph.nodes[a], graph.nodes[b]
-        return abs(lb["row"] - la["row"]) + abs(lb["column"] - la["column"])
+        return abs(graph.nodes[b]["row"] - graph.nodes[a]["row"]) + abs(
+            graph.nodes[b]["column"] - graph.nodes[a]["column"]
+        )
 
     try:
         return nx.astar_path(
@@ -205,16 +185,8 @@ def find_path(graph, start_id, goal_id):
 
 
 def get_heading(graph, current_id, target_id):
-    """
-    Heading convention:
-      North :   0°  (row +1)
-      East  :  90°  (col +1)
-      South : 180°  (row -1)
-      West  : 270°  (col -1)
-    """
     cur, tgt = graph.nodes[current_id], graph.nodes[target_id]
-    dr = tgt["row"] - cur["row"]
-    dc = tgt["column"] - cur["column"]
+    dr, dc = tgt["row"] - cur["row"], tgt["column"] - cur["column"]
     if dr == 1 and dc == 0:
         return 0.0
     if dr == 0 and dc == 1:
@@ -227,7 +199,7 @@ def get_heading(graph, current_id, target_id):
 
 
 # ============================================================================
-# SERIAL
+# SERIAL & ROTATION
 # ============================================================================
 def create_serial(port, baudrate=115200):
     ser = serial.Serial(port, baudrate, timeout=0.1)
@@ -258,17 +230,31 @@ def set_speed(ser, speed_mm_s):
     ser.write(f"SPD {speed_mm_s:.1f}\n".encode())
 
 
+def rotate_to(ser, target_heading_deg):
+    """Command ESP32 to rotate in place to target heading."""
+    ser.write(f"ROT {target_heading_deg:.2f}\n".encode())
+
+
+def wait_for_rotation(ser, timeout=10.0):
+    """Wait until ESP32 reports rotation is complete."""
+    start = time.time()
+    while time.time() - start < timeout:
+        if ser.in_waiting > 0:
+            line = ser.readline().decode("utf-8", errors="ignore").strip()
+            if "ROT_DONE" in line:
+                return True
+        time.sleep(0.05)
+    return False
+
+
 # ============================================================================
 # VIEWER
 # ============================================================================
 def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
     if highlight_ids is None:
         highlight_ids = set()
-
     h, w = frame.shape[:2]
     cx, cy = w // 2, h // 2
-
-    # Axis crosshair
     cv2.line(frame, (0, cy), (w, cy), (128, 128, 128), 1)
     cv2.line(frame, (cx, 0), (cx, h), (128, 128, 128), 1)
     cv2.circle(frame, (cx, cy), 4, (128, 128, 128), -1)
@@ -278,24 +264,20 @@ def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
         is_unexpected = d.tag_id in highlight_ids
         color = (0, 0, 255) if is_unexpected else (0, 255, 0)
         thickness = 3 if is_unexpected else 2
-
         for i in range(4):
             cv2.line(
                 frame, tuple(corners[i]), tuple(corners[(i + 1) % 4]), color, thickness
             )
-
         center = tuple(d.center.astype(int))
         cv2.circle(frame, center, 5, color, -1)
-
         x, y = int(corners[0][0]), int(corners[0][1])
         label = f"ID:{d.tag_id}" + (" [UNEXPECTED]" if is_unexpected else "")
         cv2.putText(
             frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, thickness
         )
-
         info_y = y + 15
-        for label, val, fmt in [("Head", d.heading, ".1f"), ("Lat", d.lateral, ".3f")]:
-            text = f"{label}: {val:{fmt}}" if val is not None else f"{label}: N/A"
+        for lbl, val, fmt in [("Head", d.heading, ".1f"), ("Lat", d.lateral, ".3f")]:
+            text = f"{lbl}: {val:{fmt}}" if val is not None else f"{lbl}: N/A"
             cv2.putText(
                 frame,
                 text,
@@ -306,7 +288,6 @@ def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
                 1,
             )
             info_y += 14
-
         cv2.line(frame, (cx, cy), center, color, 1)
 
     if status_lines:
@@ -320,7 +301,6 @@ def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
                 (0, 255, 255),
                 2,
             )
-
     return frame
 
 
@@ -329,50 +309,34 @@ def show_frame(frame):
 
 
 # ============================================================================
-# DETECTION SELECTION
+# DETECTION SELECTION (Unified for both Pass-through and Stopping)
 # ============================================================================
-def select_best_detection_for_stop(
-    detections,
-    graph,
-    target_landmark_id,
-    start_landmark_id,
-    has_seen_target,
-    search_time_s,
-    lateral_threshold_mm=20.0,
+def select_best_detection(
+    detections, graph, target_landmark_id, start_landmark_id, has_seen_target
 ):
     """
-    Select best detection for STOPPING at final target.
-
-    Priority:
-      1. Center tag (best)
-      2. Side tags with small lateral error (good enough)
-      3. Any tag from target cluster if search time exceeded
-
-    Returns: (best_det, best_info, unexpected_info, new_has_seen_target, should_stop)
+    Select the best tag. Returns (best_det, best_info, unexpected_info, new_has_seen_target).
+    - Tolerates tags from start_landmark until we see the first tag from target_landmark.
+    - Flags any tag from a different cluster as unexpected.
+    - Prefers center tags, but accepts side/corner tags if center isn't visible.
     """
-    best_det = None
-    best_info = None
+    best_det, best_info, unexpected_info = None, None, None
     best_score = 99
-    unexpected_info = None
     new_has_seen_target = has_seen_target
-    should_stop = False
 
     for d in detections:
         info = find_landmark_by_tag(graph, d.tag_id)
-
         if info is None:
             if unexpected_info is None:
                 unexpected_info = {"tag_id": d.tag_id, "reason": "unknown_tag"}
             continue
 
-        cluster_id = info["id"]
-        pos = info["position"]
+        cluster_id, pos = info["id"], info["position"]
 
-        # Cluster membership rules
         if cluster_id == target_landmark_id:
             new_has_seen_target = True
         elif cluster_id == start_landmark_id and not has_seen_target:
-            continue
+            continue  # Still leaving start cluster
         else:
             if unexpected_info is None:
                 unexpected_info = {
@@ -382,40 +346,21 @@ def select_best_detection_for_stop(
                 }
             continue
 
-        # Tag is from target cluster
-        corrected_lat = correct_lateral_to_center(d, pos)
-        lat_mm = corrected_lat * 1000.0 if corrected_lat is not None else 999.0
-
-        # Priority scoring
+        # Tag is from target cluster. Score it.
         if pos == "center":
             score = 0
         elif pos in ("north", "south", "east", "west"):
-            # Side tags - check if lateral error is acceptable
-            if abs(lat_mm) < lateral_threshold_mm:
-                score = 1
-            else:
-                score = 3  # Too far off
+            score = 1
         else:
-            # Corner tags - less reliable
-            if abs(lat_mm) < lateral_threshold_mm:
-                score = 2
-            else:
-                score = 4
+            score = 2
 
-        # Fallback: if we've been searching too long, accept any tag
-        if search_time_s > 5.0 and score < best_score:
-            best_score = score
-            best_det, best_info = d, info
-            should_stop = True  # Accept whatever we see after timeout
-        elif score < best_score:
+        if score < best_score:
             best_score = score
             best_det, best_info = d, info
             if score == 0:
-                should_stop = True  # Center tag found
-            elif score <= 2 and abs(lat_mm) < lateral_threshold_mm:
-                should_stop = True  # Good enough alignment
+                break  # Can't do better than center
 
-    return best_det, best_info, unexpected_info, new_has_seen_target, should_stop
+    return best_det, best_info, unexpected_info, new_has_seen_target
 
 
 # ============================================================================
@@ -424,49 +369,29 @@ def select_best_detection_for_stop(
 def navigate_segment(
     ser, cam, det, graph, from_node, to_node, velocity_mps, is_final_target=False
 ):
-    """
-    Navigate one segment with stop-and-rotate behavior.
-    """
     desired_heading = get_heading(graph, from_node, to_node)
     direction_name = {0.0: "NORTH", 90.0: "EAST", 180.0: "SOUTH", 270.0: "WEST"}.get(
         desired_heading, "?"
     )
-    mode = "STOP" if is_final_target else "PASS-THROUGH"
-
     print(
-        f"\n[SEGMENT] {from_node} -> {to_node} | {direction_name} ({desired_heading:.0f}°) | {mode}"
+        f"\n[SEGMENT] {from_node} -> {to_node} | {direction_name} ({desired_heading:.0f}°)"
     )
 
-    # Get current heading from ESP32 (we need to know where we're facing)
-    # For now, assume we're facing the direction we arrived from
-    # In practice, you'd query the ESP32 for its current heading
-
+    start_move(ser)
     start_time = time.time()
     last_log_time = 0.0
     tags_seen = set()
     has_seen_target = False
-    arrived = False
-
-    # ---- Phase 1: Move forward until we reach target cluster ----
-    print(f"  [PHASE 1] Moving forward...")
-    start_move(ser)
 
     while True:
         frame = get_frame(cam)
         raw = detect_tags(det, frame)
         enrich_detections(raw)
-
         elapsed = time.time() - start_time
-        status = [f"{from_node}->{to_node} {desired_heading:.0f}° [{mode}]"]
+        status = [f"{from_node}->{to_node} {desired_heading:.0f}°"]
 
-        # Select detection (pass-through mode: any tag from target)
         best_det, best_info, unexpected, has_seen_target = select_best_detection(
-            raw,
-            graph,
-            target_landmark_id=to_node,
-            start_landmark_id=from_node,
-            has_seen_target=has_seen_target,
-            stop_at_center=False,  # Pass-through mode
+            raw, graph, to_node, from_node, has_seen_target
         )
 
         # Safety check
@@ -485,40 +410,28 @@ def navigate_segment(
                 if key == ord("q"):
                     return False
                 if key != 255:
+                    print("  Resuming...")
                     start_move(ser)
                     break
             continue
 
-        # Normal processing
         if best_det is not None and best_info is not None:
-            tag_id = best_det.tag_id
-            pos = best_info["position"]
+            tag_id, pos = best_det.tag_id, best_info["position"]
             tags_seen.add(tag_id)
             status.append(f"Tag:{tag_id} {pos}")
 
-            # IMU correction
             if pos == "center" and best_det.heading is not None:
                 correct_heading(ser, best_det.heading)
+                status.append(f"IMU->{best_det.heading:.1f}°")
 
-            # Lateral correction
             corrected_lat = correct_lateral_to_center(best_det, pos)
             lat_mm = corrected_lat * 1000.0 if corrected_lat is not None else 0.0
             send_goals(ser, desired_heading, lat_mm)
             status.append(f"Lat:{lat_mm:.1f}mm")
 
-            # Check if we've reached the target cluster
             if has_seen_target:
-                if is_final_target:
-                    # For final target, continue to phase 2 (precise stopping)
-                    stop_move(ser)
-                    print(
-                        f"  [PHASE 1] Reached target cluster, entering precision mode"
-                    )
-                    break
-                else:
-                    # Pass-through: we're done
-                    arrived = True
-                    break
+                stop_move(ser)
+                break  # Reached the target cluster
 
             if elapsed - last_log_time >= 1.0:
                 last_log_time = elapsed
@@ -528,105 +441,44 @@ def navigate_segment(
         else:
             send_goals(ser, desired_heading, 0.0)
             status.append("NO TAG")
+            if elapsed - last_log_time >= 2.0:
+                last_log_time = elapsed
+                print(f"  [{elapsed:5.1f}s] No tag visible")
 
         draw_frame(frame, raw, status)
         show_frame(frame)
-
-        if arrived:
-            stop_move(ser)
-            print(f"  [OK] Passed through landmark {to_node}")
-            return True
 
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
             stop_move(ser)
             return False
-
         if elapsed > SEGMENT_TIMEOUT_S:
             print(f"  [!] TIMEOUT")
             stop_move(ser)
             return False
-
         time.sleep(0.02)
 
-    # ---- Phase 2: Precision stopping (only for final target) ----
+    # We are now stopped at the target cluster.
     if is_final_target:
-        print(f"  [PHASE 2] Precision stopping - looking for center tag...")
-        stop_start_time = time.time()
-
-        # Brief pause before starting precision search
-        time.sleep(0.3)
-
-        while True:
+        print("  [PHASE 2] Final alignment check (looking for center tag)...")
+        # Wait up to 5 seconds to see a center tag for a final IMU correction
+        for _ in range(100):
             frame = get_frame(cam)
             raw = detect_tags(det, frame)
             enrich_detections(raw)
-
-            elapsed = time.time() - stop_start_time
-            status = [f"PRECISION STOP {elapsed:.1f}s"]
-
-            # Use fallback logic for stopping
-            best_det, best_info, unexpected, has_seen_target, should_stop = (
-                select_best_detection_for_stop(
-                    raw,
-                    graph,
-                    target_landmark_id=to_node,
-                    start_landmark_id=from_node,
-                    has_seen_target=True,
-                    search_time_s=elapsed,
-                    lateral_threshold_mm=20.0,
-                )
-            )
-
-            if best_det is not None and best_info is not None:
-                tag_id = best_det.tag_id
-                pos = best_info["position"]
-                status.append(f"Tag:{tag_id} {pos}")
-
-                corrected_lat = correct_lateral_to_center(best_det, pos)
-                lat_mm = corrected_lat * 1000.0 if corrected_lat is not None else 0.0
-                status.append(f"Lat:{lat_mm:.1f}mm")
-
-                if should_stop:
-                    print(
-                        f"  [OK] Stopping on tag {tag_id} ({pos}), lat={lat_mm:.1f}mm"
-                    )
+            for d in raw:
+                info = find_landmark_by_tag(graph, d.tag_id)
+                if info and info["id"] == to_node and info["position"] == "center":
+                    if d.heading is not None:
+                        correct_heading(ser, d.heading)
+                        print(f"  [OK] Final IMU corrected to {d.heading:.2f}°")
                     break
-
-                if elapsed - last_log_time >= 1.0:
-                    last_log_time = elapsed
-                    print(
-                        f"  [{elapsed:5.1f}s] Searching... Tag:{tag_id} {pos} Lat:{lat_mm:+7.1f}mm"
-                    )
-            else:
-                status.append("NO TAG")
-
-            draw_frame(frame, raw, status)
-            show_frame(frame)
-
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord("q"):
-                return False
-
-            if elapsed > 10.0:  # Max 10 seconds for precision stop
-                print(f"  [!] Precision stop timeout, stopping anyway")
-                break
-
-            time.sleep(0.02)
-
-        stop_move(ser)
-        time.sleep(0.5)  # Brief pause after stopping
-
-        # ---- Phase 3: Rotate to next heading (if needed) ----
-        # For now, we'll skip rotation since we don't know the current heading
-        # In practice, you'd query ESP32 for current heading and rotate if needed
-        # rotate_to_heading(ser, next_heading)
-        # wait_for_idle(ser)
-
+            time.sleep(0.05)
         print(f"  [OK] Arrived at landmark {to_node}")
-        return True
+    else:
+        print(f"  [OK] Passed through landmark {to_node}")
 
-    return False
+    return True
 
 
 # ============================================================================
@@ -642,14 +494,12 @@ def main():
     det = create_detector()
     ser = create_serial(SERIAL_PORT)
 
-    # ---------- Phase 1: Manual alignment at Dock ----------
+    # ---------- Phase 1: Manual alignment ----------
     print("\n[PHASE 1] Manual Alignment")
     print("  1. Place robot at Dock (Landmark 0)")
     print("  2. Ensure CENTER tag (ID 0) is visible")
-    print("  3. Physically align robot facing the corridor (North)")
+    print("  3. Physically align robot facing North")
     print("  4. Press 's' to initialize and start")
-    print("  5. Press 'q' to quit\n")
-
     started = False
     while not started:
         frame = get_frame(cam)
@@ -657,7 +507,6 @@ def main():
         enrich_detections(raw)
         draw_frame(frame, raw, ["PHASE 1: Align at Dock, press 's'"])
         show_frame(frame)
-
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
             cam.stop()
@@ -665,7 +514,16 @@ def main():
             ser.close()
             return
         if key == ord("s"):
-            dock_center = None
+            dock_center = next(
+                (
+                    d
+                    for d in raw
+                    if find_landmark_by_tag(graph, d.tag_id)
+                    in [{"id": 0, "position": "center"}]
+                ),
+                None,
+            )
+            # Simplified check for dock center
             for d in raw:
                 info = find_landmark_by_tag(graph, d.tag_id)
                 if info and info["id"] == 0 and info["position"] == "center":
@@ -678,7 +536,6 @@ def main():
             if dock_center.heading is None:
                 print("  [!] Cannot compute tag heading.")
                 continue
-
             correct_heading(ser, dock_center.heading)
             print(f"  [OK] IMU initialized to {dock_center.heading:.2f}°")
             started = True
@@ -690,22 +547,18 @@ def main():
         frame = get_frame(cam)
         raw = detect_tags(det, frame)
         enrich_detections(raw)
-        draw_frame(frame, raw, ["PHASE 2: Enter target ID in terminal"])
+        draw_frame(frame, raw, ["PHASE 2: Enter target ID"])
         show_frame(frame)
         cv2.waitKey(1)
-
         try:
             target_node = int(input("Target landmark ID (1-20): ").strip())
-            if not graph.has_node(target_node):
-                print(f"  [!] Landmark {target_node} does not exist.")
-                target_node = None
-            elif target_node == 0:
-                print("  [!] Cannot navigate to Dock (0).")
+            if not graph.has_node(target_node) or target_node == 0:
+                print("  [!] Invalid ID.")
                 target_node = None
         except ValueError:
             print("  [!] Invalid input.")
 
-    # ---------- Phase 3: Path planning + navigation ----------
+    # ---------- Phase 3: Navigation ----------
     path = find_path(graph, 0, target_node)
     if not path:
         print(f"\n[ERROR] No path from 0 to {target_node}.")
@@ -715,38 +568,35 @@ def main():
         return
 
     print(f"\n[PHASE 3] Navigation")
-    print(f"  Path     : {' -> '.join(map(str, path))}")
-    print(f"  Segments : {len(path) - 1}")
-    print(f"  Correction distance: {CORRECTION_DISTANCE_MM}mm")
+    print(f"  Path: {' -> '.join(map(str, path))}")
 
     velocity_mps = 0.05
     set_speed(ser, velocity_mps * 1000.0)
 
     for i in range(len(path) - 1):
-        from_node = path[i]
-        to_node = path[i + 1]
+        from_node, to_node = path[i], path[i + 1]
         is_final = to_node == target_node
+        desired_heading = get_heading(graph, from_node, to_node)
 
-        success = navigate_segment(
-            ser,
-            cam,
-            det,
-            graph,
-            from_node,
-            to_node,
-            velocity_mps,
-            is_final_target=is_final,
+        # 1. ROTATE to the correct heading for this segment
+        print(
+            f"\n[ROTATE] Turning to {desired_heading:.0f}° for segment {from_node}->{to_node}"
         )
+        rotate_to(ser, desired_heading)
+        if not wait_for_rotation(ser):
+            print("  [!] Rotation timeout")
+        time.sleep(0.3)  # Brief pause after rotation
 
+        # 2. NAVIGATE the segment
+        success = navigate_segment(
+            ser, cam, det, graph, from_node, to_node, velocity_mps, is_final
+        )
         if not success:
             print("\n[ABORT] Navigation interrupted.")
             break
 
         if not is_final:
-            # Pass-through: immediately continue to next segment
-            time.sleep(0.1)
-        else:
-            time.sleep(0.5)
+            time.sleep(0.2)  # Brief pause before next segment
     else:
         print("\n" + "=" * 60)
         print(f"  *** NAVIGATION COMPLETE: Reached Landmark {target_node} ***")

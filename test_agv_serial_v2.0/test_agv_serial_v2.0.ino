@@ -11,7 +11,7 @@ constexpr uint8_t RIGHT_STEP_PIN = 4;
 constexpr uint8_t RIGHT_DIR_PIN = 13;
 constexpr uint8_t RIGHT_EN_PIN = 14;
 
-// ---------- IMU (MPU6050) ----------
+// ---------- IMU ----------
 constexpr uint8_t MPU6050_ADDRESS = 0x68;
 constexpr uint8_t REG_PWR_MGMT_1 = 0x6B;
 constexpr uint8_t REG_GYRO_CONFIG = 0x1B;
@@ -25,34 +25,31 @@ constexpr uint8_t IMU_CALIBRATION_DELAY_MS = 2;
 
 // ---------- Kinematics ----------
 constexpr float WHEEL_DIAMETER_MM = 117.0f;
-constexpr uint32_t STEPS_PER_REV = 20000;
+constexpr uint32_t STEPS_PER_REV = 40000;
 constexpr float WHEEL_CIRCUMFERENCE_MM = PI * WHEEL_DIAMETER_MM;
 constexpr float STEPS_PER_MM = STEPS_PER_REV / WHEEL_CIRCUMFERENCE_MM;
 
 constexpr float WHEEL_BASE_MM = 355.0f;
-constexpr float CORRECTION_DISTANCE_MM = 350.0f;       // fixed distance for atan-based steering
-constexpr float MAX_SEGMENT_DISTANCE_MM = 10000.0f;    // safety cap only
+constexpr float CORRECTION_DISTANCE_MM = 350.0f;
+constexpr float MAX_SEGMENT_DISTANCE_MM = 10000.0f;
 
-float BASE_SPEED_MM_S = 100.0f;
+float BASE_SPEED_MM_S = 200.0f;
 constexpr float KP_HEADING = 2.5f;
 constexpr float MAX_TURN_RATE_DEG = 60.0f;
 
+// Rotation specific constants
+constexpr float ROTATION_TOLERANCE_DEG = 2.0f;
+constexpr float MAX_ROTATION_SPEED_DEG_S = 30.0f;    // Slower than forward speed
+constexpr float ROTATION_KP = 2.0f;
+
 constexpr uint32_t TIMER_FREQ_HZ = 20000;
 
-float ROTATION_SPEED_DEG_S = 0.5 * BASE_SPEED_MM_S;    // Slower than forward speed
-constexpr float HEADING_TOLERANCE_DEG = 2.0f;                    // Accept within 2 degrees
-
 // ---------- State ----------
-enum RobotState {
-    STATE_IDLE,
-    STATE_MOVING,
-    STATE_ROTATING,
-    STATE_FINISHED
-};
+enum RobotState { STATE_IDLE,
+                  STATE_MOVING,
+                  STATE_ROTATING,
+                  STATE_FINISHED };
 volatile RobotState robotState = STATE_IDLE;
-
-float targetRotationDeg = 0.0f;
-float rotationSpeedDegPerSec = 0.0f;
 
 // ---------- Step generation ----------
 volatile uint32_t leftStepsPerSec = 0, rightStepsPerSec = 0;
@@ -64,6 +61,7 @@ hw_timer_t* stepTimer = NULL;
 
 // ---------- IMU / control targets ----------
 float targetHeadingDeg = 0.0f;
+float targetRotationDeg = 0.0f;
 float lateralErrorMm = 0.0f;
 bool imuCalibrated = false;
 float headingDeg = 0.0f;
@@ -150,7 +148,6 @@ void imuUpdate() {
 
     int16_t raw;
     if (!imuReadGyroRaw(raw)) return;
-
     gyroRateDegPerSec = (static_cast<float>(raw) / GYRO_SCALE_250DPS) - gyroBiasDegPerSec;
     headingDeg += gyroRateDegPerSec * dt;
     headingDeg = normalizeAngle(headingDeg);
@@ -241,6 +238,10 @@ void serialUpdate() {
         headingDeg = normalizeAngle(command.substring(5).toFloat());
         lastUpdateMicros = micros();
         Serial.printf("[IMU] Corrected to %.2f deg\n", headingDeg);
+    } else if (command.startsWith("ROT")) {
+        targetRotationDeg = normalizeAngle(command.substring(4).toFloat());
+        robotState = STATE_ROTATING;
+        Serial.printf("ROTATING to %.2f deg\n", targetRotationDeg);
     } else if (command.startsWith("MOVE")) {
         if (robotState == STATE_MOVING) return;
         totalLeftSteps = 0;
@@ -257,12 +258,6 @@ void serialUpdate() {
     } else if (command.startsWith("SPD")) {
         float s = command.substring(3).toFloat();
         if (s > 0.0f && s < 1000.0f) BASE_SPEED_MM_S = s;
-    } else if (command.startsWith("ROT")) {
-        // ROT <target_heading_deg>
-        targetRotationDeg = normalizeAngle(command.substring(4).toFloat());
-        rotationSpeedDegPerSec = ROTATION_SPEED_DEG_S;
-        robotState = STATE_ROTATING;
-        Serial.printf("ROTATING to %.2f deg\n", targetRotationDeg);
     }
 }
 
@@ -286,71 +281,46 @@ void loop() {
     serialUpdate();
     imuUpdate();
 
-    float currentDistanceMm =
-        ((float)totalLeftSteps + (float)totalRightSteps) / 2.0f / STEPS_PER_MM;
+    float currentDistanceMm = ((float)totalLeftSteps + (float)totalRightSteps) / 2.0f / STEPS_PER_MM;
 
+    // --- ROTATION STATE ---
     if (robotState == STATE_ROTATING) {
-    float headingError = normalizeAngle(targetRotationDeg - headingDeg);
-    
-    if (fabs(headingError) < HEADING_TOLERANCE_DEG) {
-        // Rotation complete
-        stopMotors();
-        robotState = STATE_IDLE;
-        Serial.println("Rotation complete");
-    } else {
-        // Rotate in place: left forward, right backward (or vice versa)
-        float correctionRadPerSec = headingError * PI / 180.0f;
-        correctionRadPerSec = constrain(correctionRadPerSec, 
-                                        -rotationSpeedDegPerSec * PI / 180.0f,
-                                        rotationSpeedDegPerSec * PI / 180.0f);
-        
-        float vLeft  = -correctionRadPerSec * (WHEEL_BASE_MM / 2.0f);
-        float vRight =  correctionRadPerSec * (WHEEL_BASE_MM / 2.0f);
-        
-        setWheelSpeeds(vLeft, vRight);
-    }
-}
+        float headingError = normalizeAngle(targetRotationDeg - headingDeg);
 
-    if (robotState == STATE_MOVING) {
-        // Safety cap (Python normally stops us first)
+        if (fabs(headingError) < ROTATION_TOLERANCE_DEG) {
+            stopMotors();
+            robotState = STATE_IDLE;
+            Serial.println("ROT_DONE");
+        } else {
+            // P-controller for rotation, capped at slower max speed
+            float omegaDegPerSec = constrain(headingError * ROTATION_KP, -MAX_ROTATION_SPEED_DEG_S, MAX_ROTATION_SPEED_DEG_S);
+            float omegaRadPerSec = omegaDegPerSec * PI / 180.0f;
+
+            // Differential drive for in-place rotation
+            float vLeft = -omegaRadPerSec * (WHEEL_BASE_MM / 2.0f);
+            float vRight = omegaRadPerSec * (WHEEL_BASE_MM / 2.0f);
+
+            setWheelSpeeds(vLeft, vRight);
+        }
+    }
+    // --- MOVING STATE ---
+    else if (robotState == STATE_MOVING) {
         if (currentDistanceMm >= MAX_SEGMENT_DISTANCE_MM) {
             robotState = STATE_FINISHED;
             stopMotors();
             Serial.println("Safety distance reached");
         } else {
-            // ---- UNIFIED CONTROL ----
-            // 1. Convert lateral error (mm) into a heading adjustment (deg)
-            //    using the fixed correction distance.
-            float lateralAngleDeg = atan2f(lateralErrorMm, CORRECTION_DISTANCE_MM)
-                                    * 180.0f / PI;
-
-            // 2. Combined target = desired heading + lateral adjustment
+            float lateralAngleDeg = atan2f(lateralErrorMm, CORRECTION_DISTANCE_MM) * 180.0f / PI;
             float combinedTargetDeg = normalizeAngle(targetHeadingDeg + lateralAngleDeg);
-
-            // 3. Single error term against IMU
             float totalErrorDeg = normalizeAngle(combinedTargetDeg - headingDeg);
 
-            // 4. P-controller -> turn rate
-            float correctionDegPerSec = constrain(
-                totalErrorDeg * KP_HEADING,
-                -MAX_TURN_RATE_DEG, MAX_TURN_RATE_DEG);
+            float correctionDegPerSec = constrain(totalErrorDeg * KP_HEADING, -MAX_TURN_RATE_DEG, MAX_TURN_RATE_DEG);
             float correctionRadPerSec = correctionDegPerSec * PI / 180.0f;
 
-            // 5. Differential drive
             float vLeft = BASE_SPEED_MM_S - correctionRadPerSec * (WHEEL_BASE_MM / 2.0f);
             float vRight = BASE_SPEED_MM_S + correctionRadPerSec * (WHEEL_BASE_MM / 2.0f);
 
             setWheelSpeeds(vLeft, vRight);
-
-            // Debug
-            static uint32_t lastCtrlPrint = 0;
-            if (millis() - lastCtrlPrint >= 200) {
-                lastCtrlPrint = millis();
-                Serial.printf("[CTRL] IMU=%6.2f  Target=%6.2f  LatAng=%5.2f  "
-                              "CombTgt=%6.2f  Err=%6.2f  Omega=%5.2f deg/s\n",
-                              headingDeg, targetHeadingDeg, lateralAngleDeg,
-                              combinedTargetDeg, totalErrorDeg, correctionDegPerSec);
-            }
         }
     }
 
@@ -358,7 +328,6 @@ void loop() {
     if (millis() - lastPrint >= 100) {
         lastPrint = millis();
         Serial.printf("Dist=%.1f | Head=%.2f | Target=%.2f | Lat=%.1f | State=%d\n",
-                      currentDistanceMm, headingDeg, targetHeadingDeg,
-                      lateralErrorMm, robotState);
+                      currentDistanceMm, headingDeg, targetHeadingDeg, lateralErrorMm, robotState);
     }
 }
