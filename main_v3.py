@@ -331,42 +331,35 @@ def show_frame(frame):
 # ============================================================================
 # DETECTION SELECTION
 # ============================================================================
-def select_best_detection(
+def select_best_detection_for_stop(
     detections,
     graph,
     target_landmark_id,
     start_landmark_id,
     has_seen_target,
-    stop_at_center=False,
+    search_time_s,
+    lateral_threshold_mm=20.0,
 ):
     """
-    Select the best tag to use for corrections, with safety enforcement.
+    Select best detection for STOPPING at final target.
 
-    State machine:
-      - While has_seen_target == False:
-            * tags from start_landmark are tolerated (we're still leaving)
-            * tags from target_landmark flip has_seen_target -> True
-            * tags from any OTHER cluster -> unexpected (safety stop)
-      - Once has_seen_target == True:
-            * only target_landmark tags are allowed
-            * any other cluster (including start) -> unexpected
+    Priority:
+      1. Center tag (best)
+      2. Side tags with small lateral error (good enough)
+      3. Any tag from target cluster if search time exceeded
 
-    Args:
-        stop_at_center: If True, only return the center tag of the target cluster.
-                        If False, return any tag from the target cluster (preferring center).
-
-    Returns: (best_det, best_info, unexpected_info, new_has_seen_target)
+    Returns: (best_det, best_info, unexpected_info, new_has_seen_target, should_stop)
     """
     best_det = None
     best_info = None
     best_score = 99
     unexpected_info = None
     new_has_seen_target = has_seen_target
+    should_stop = False
 
     for d in detections:
         info = find_landmark_by_tag(graph, d.tag_id)
 
-        # Unknown tag (not in map)
         if info is None:
             if unexpected_info is None:
                 unexpected_info = {"tag_id": d.tag_id, "reason": "unknown_tag"}
@@ -375,14 +368,12 @@ def select_best_detection(
         cluster_id = info["id"]
         pos = info["position"]
 
-        # --- Cluster membership rules ---
+        # Cluster membership rules
         if cluster_id == target_landmark_id:
-            new_has_seen_target = True  # We've entered the target cluster
+            new_has_seen_target = True
         elif cluster_id == start_landmark_id and not has_seen_target:
-            # Still leaving the start cluster — tolerate but don't use for corrections
             continue
         else:
-            # Tag belongs to some other cluster -> safety violation
             if unexpected_info is None:
                 unexpected_info = {
                     "tag_id": d.tag_id,
@@ -391,30 +382,40 @@ def select_best_detection(
                 }
             continue
 
-        # --- Tag is from target cluster. Apply mode-specific selection. ---
-        if stop_at_center:
-            # STOP MODE: only the center tag matters
-            if pos == "center":
-                best_det, best_info = d, info
-                break
-            else:
-                continue
-        else:
-            # PASS-THROUGH MODE: any tag from target cluster is fine; prefer center
-            if pos == "center":
-                score = 0
-            elif pos in ("north", "south", "east", "west"):
+        # Tag is from target cluster
+        corrected_lat = correct_lateral_to_center(d, pos)
+        lat_mm = corrected_lat * 1000.0 if corrected_lat is not None else 999.0
+
+        # Priority scoring
+        if pos == "center":
+            score = 0
+        elif pos in ("north", "south", "east", "west"):
+            # Side tags - check if lateral error is acceptable
+            if abs(lat_mm) < lateral_threshold_mm:
                 score = 1
             else:
+                score = 3  # Too far off
+        else:
+            # Corner tags - less reliable
+            if abs(lat_mm) < lateral_threshold_mm:
                 score = 2
+            else:
+                score = 4
 
-            if score < best_score:
-                best_score = score
-                best_det, best_info = d, info
-                if score == 0:
-                    break
+        # Fallback: if we've been searching too long, accept any tag
+        if search_time_s > 5.0 and score < best_score:
+            best_score = score
+            best_det, best_info = d, info
+            should_stop = True  # Accept whatever we see after timeout
+        elif score < best_score:
+            best_score = score
+            best_det, best_info = d, info
+            if score == 0:
+                should_stop = True  # Center tag found
+            elif score <= 2 and abs(lat_mm) < lateral_threshold_mm:
+                should_stop = True  # Good enough alignment
 
-    return best_det, best_info, unexpected_info, new_has_seen_target
+    return best_det, best_info, unexpected_info, new_has_seen_target, should_stop
 
 
 # ============================================================================
@@ -424,10 +425,7 @@ def navigate_segment(
     ser, cam, det, graph, from_node, to_node, velocity_mps, is_final_target=False
 ):
     """
-    Navigate one segment.
-
-    is_final_target=False -> PASS-THROUGH: stop as soon as we see any tag of to_node
-    is_final_target=True  -> STOP:        stop only on the center tag of to_node
+    Navigate one segment with stop-and-rotate behavior.
     """
     desired_heading = get_heading(graph, from_node, to_node)
     direction_name = {0.0: "NORTH", 90.0: "EAST", 180.0: "SOUTH", 270.0: "WEST"}.get(
@@ -439,119 +437,104 @@ def navigate_segment(
         f"\n[SEGMENT] {from_node} -> {to_node} | {direction_name} ({desired_heading:.0f}°) | {mode}"
     )
 
-    start_move(ser)
+    # Get current heading from ESP32 (we need to know where we're facing)
+    # For now, assume we're facing the direction we arrived from
+    # In practice, you'd query the ESP32 for its current heading
+
     start_time = time.time()
     last_log_time = 0.0
     tags_seen = set()
     has_seen_target = False
     arrived = False
 
+    # ---- Phase 1: Move forward until we reach target cluster ----
+    print(f"  [PHASE 1] Moving forward...")
+    start_move(ser)
+
     while True:
         frame = get_frame(cam)
         raw = detect_tags(det, frame)
         enrich_detections(raw)
 
+        elapsed = time.time() - start_time
+        status = [f"{from_node}->{to_node} {desired_heading:.0f}° [{mode}]"]
+
+        # Select detection (pass-through mode: any tag from target)
         best_det, best_info, unexpected, has_seen_target = select_best_detection(
             raw,
             graph,
             target_landmark_id=to_node,
             start_landmark_id=from_node,
             has_seen_target=has_seen_target,
-            stop_at_center=is_final_target,
+            stop_at_center=False,  # Pass-through mode
         )
 
-        elapsed = time.time() - start_time
-        status = [f"{from_node}->{to_node} {desired_heading:.0f}° [{mode}]"]
-
-        # ---- SAFETY: unexpected tag ----
+        # Safety check
         if unexpected is not None:
             stop_move(ser)
-            print(f"\n[!!!] SAFETY STOP — Unexpected tag detected!")
-            if unexpected["reason"] == "unknown_tag":
-                print(f"  Tag ID {unexpected['tag_id']} is not in the map.")
-            else:
-                print(
-                    f"  Tag ID {unexpected['tag_id']} belongs to cluster "
-                    f"{unexpected['cluster_id']}, expected cluster {to_node}."
-                )
-            print(f"  Press any key to resume, 'q' to abort.")
-
+            print(f"\n[!!!] SAFETY STOP — Unexpected tag {unexpected['tag_id']}")
             draw_frame(
                 frame,
                 raw,
-                [f"SAFETY STOP: unexpected tag {unexpected['tag_id']}"],
+                [f"SAFETY: {unexpected['tag_id']}"],
                 highlight_ids={unexpected["tag_id"]},
             )
             show_frame(frame)
-
             while True:
                 key = cv2.waitKey(100) & 0xFF
                 if key == ord("q"):
                     return False
                 if key != 255:
-                    print("  Resuming...")
                     start_move(ser)
-                    start_time = time.time() - elapsed  # keep elapsed consistent
                     break
             continue
 
-        # ---- Normal processing ----
+        # Normal processing
         if best_det is not None and best_info is not None:
-            lm_id = best_info["id"]
-            pos = best_info["position"]
             tag_id = best_det.tag_id
+            pos = best_info["position"]
             tags_seen.add(tag_id)
-
             status.append(f"Tag:{tag_id} {pos}")
 
-            # IMU correction from any center tag (ground truth from rotation matrix)
+            # IMU correction
             if pos == "center" and best_det.heading is not None:
                 correct_heading(ser, best_det.heading)
-                status.append(f"IMU->{best_det.heading:.1f}°")
-                print(
-                    f"  [IMU] Corrected to {best_det.heading:.2f}° from tag {tag_id} (LM {lm_id})"
-                )
 
-            # ---- Arrival condition ----
-            if is_final_target:
-                if pos == "center":
-                    arrived = True
-            else:
-                # Pass-through: the first sighting of any tag in the target cluster
-                # is enough — we've reached the neighborhood.
-                arrived = True
-
-            # Lateral correction (helper-to-center compensated)
+            # Lateral correction
             corrected_lat = correct_lateral_to_center(best_det, pos)
             lat_mm = corrected_lat * 1000.0 if corrected_lat is not None else 0.0
             send_goals(ser, desired_heading, lat_mm)
             status.append(f"Lat:{lat_mm:.1f}mm")
 
+            # Check if we've reached the target cluster
+            if has_seen_target:
+                if is_final_target:
+                    # For final target, continue to phase 2 (precise stopping)
+                    stop_move(ser)
+                    print(
+                        f"  [PHASE 1] Reached target cluster, entering precision mode"
+                    )
+                    break
+                else:
+                    # Pass-through: we're done
+                    arrived = True
+                    break
+
             if elapsed - last_log_time >= 1.0:
                 last_log_time = elapsed
                 print(
-                    f"  [{elapsed:5.1f}s] Tag:{tag_id:3d} {pos:11s} "
-                    f"Lat:{lat_mm:+7.1f}mm  Seen: {sorted(tags_seen)}"
+                    f"  [{elapsed:5.1f}s] Tag:{tag_id:3d} {pos:11s} Lat:{lat_mm:+7.1f}mm"
                 )
         else:
-            # No tag visible: hold desired heading, no lateral correction
             send_goals(ser, desired_heading, 0.0)
             status.append("NO TAG")
-            if elapsed - last_log_time >= 2.0:
-                last_log_time = elapsed
-                print(
-                    f"  [{elapsed:5.1f}s] No tag visible, holding heading {desired_heading:.0f}°"
-                )
 
         draw_frame(frame, raw, status)
         show_frame(frame)
 
         if arrived:
             stop_move(ser)
-            if is_final_target:
-                print(f"  [OK] Arrived at landmark {to_node} (center tag)")
-            else:
-                print(f"  [OK] Passed through landmark {to_node}")
+            print(f"  [OK] Passed through landmark {to_node}")
             return True
 
         key = cv2.waitKey(1) & 0xFF
@@ -560,11 +543,90 @@ def navigate_segment(
             return False
 
         if elapsed > SEGMENT_TIMEOUT_S:
-            print(f"  [!] TIMEOUT after {SEGMENT_TIMEOUT_S}s")
+            print(f"  [!] TIMEOUT")
             stop_move(ser)
             return False
 
         time.sleep(0.02)
+
+    # ---- Phase 2: Precision stopping (only for final target) ----
+    if is_final_target:
+        print(f"  [PHASE 2] Precision stopping - looking for center tag...")
+        stop_start_time = time.time()
+
+        # Brief pause before starting precision search
+        time.sleep(0.3)
+
+        while True:
+            frame = get_frame(cam)
+            raw = detect_tags(det, frame)
+            enrich_detections(raw)
+
+            elapsed = time.time() - stop_start_time
+            status = [f"PRECISION STOP {elapsed:.1f}s"]
+
+            # Use fallback logic for stopping
+            best_det, best_info, unexpected, has_seen_target, should_stop = (
+                select_best_detection_for_stop(
+                    raw,
+                    graph,
+                    target_landmark_id=to_node,
+                    start_landmark_id=from_node,
+                    has_seen_target=True,
+                    search_time_s=elapsed,
+                    lateral_threshold_mm=20.0,
+                )
+            )
+
+            if best_det is not None and best_info is not None:
+                tag_id = best_det.tag_id
+                pos = best_info["position"]
+                status.append(f"Tag:{tag_id} {pos}")
+
+                corrected_lat = correct_lateral_to_center(best_det, pos)
+                lat_mm = corrected_lat * 1000.0 if corrected_lat is not None else 0.0
+                status.append(f"Lat:{lat_mm:.1f}mm")
+
+                if should_stop:
+                    print(
+                        f"  [OK] Stopping on tag {tag_id} ({pos}), lat={lat_mm:.1f}mm"
+                    )
+                    break
+
+                if elapsed - last_log_time >= 1.0:
+                    last_log_time = elapsed
+                    print(
+                        f"  [{elapsed:5.1f}s] Searching... Tag:{tag_id} {pos} Lat:{lat_mm:+7.1f}mm"
+                    )
+            else:
+                status.append("NO TAG")
+
+            draw_frame(frame, raw, status)
+            show_frame(frame)
+
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                return False
+
+            if elapsed > 10.0:  # Max 10 seconds for precision stop
+                print(f"  [!] Precision stop timeout, stopping anyway")
+                break
+
+            time.sleep(0.02)
+
+        stop_move(ser)
+        time.sleep(0.5)  # Brief pause after stopping
+
+        # ---- Phase 3: Rotate to next heading (if needed) ----
+        # For now, we'll skip rotation since we don't know the current heading
+        # In practice, you'd query ESP32 for current heading and rotate if needed
+        # rotate_to_heading(ser, next_heading)
+        # wait_for_idle(ser)
+
+        print(f"  [OK] Arrived at landmark {to_node}")
+        return True
+
+    return False
 
 
 # ============================================================================
