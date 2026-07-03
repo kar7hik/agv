@@ -161,12 +161,16 @@ class Viewer:
             )
 
             info_y = y + 15
-            for label, val in [
+            for label, val, fmt in [
                 ("Head", d.heading, ".1f"),
                 ("Lat", d.lateral, ".3f"),
                 ("Fwd", d.forward, ".3f"),
             ]:
-                text = f"{label}: {val:{val}}" if val is not None else f"{label}: N/A"
+                if val is not None:
+                    text = f"{label}: {val:{fmt}}"
+                else:
+                    text = f"{label}: N/A"
+
                 cv2.putText(
                     frame,
                     text,

@@ -256,6 +256,11 @@ void serialUpdate() {
             BASE_SPEED_MM_S = newSpeed;
         }
     }
+    else if (command.startsWith("HCORR")) {
+        headingDeg = command.substring(5).toFloat();
+        headingDeg = normalizeAngle(headingDeg);
+        lastUpdateMicros = micros();
+    }
 }
 
 
