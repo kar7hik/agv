@@ -1,4 +1,4 @@
-\import cv2
+import cv2
 
 from camera import Camera
 from detector import AprilTagDetector
@@ -49,19 +49,28 @@ def main():
 
             if started:
                 # --- Trigger MOVE/STOP on landmark transitions ---
-                if navigation.current is not None and navigation.current != last_current_landmark:
+                if (
+                    navigation.current is not None
+                    and navigation.current != last_current_landmark
+                ):
                     if navigation.current == navigation.target:
                         print(f"Reached target landmark {navigation.current}.")
                         serial.stop_move()
                     elif navigation.next is not None:
-                        print(f"Arrived at {navigation.current}, moving to {navigation.next}")
+                        print(
+                            f"Arrived at {navigation.current}, moving to {navigation.next}"
+                        )
                         serial.start_move()
                     last_current_landmark = navigation.current
 
                 # --- Send goals to ESP32 (it computes corrections internally) ---
                 if navigation.desired_heading is not None:
                     # Lateral error: convert meters → mm, default to 0 if tag lost
-                    lat_mm = (navigation.lateral_error * 1000.0) if navigation.lateral_error is not None else 0.0
+                    lat_mm = (
+                        (navigation.lateral_error * 1000.0)
+                        if navigation.lateral_error is not None
+                        else 0.0
+                    )
 
                     serial.send_goals(
                         desired_heading_deg=navigation.desired_heading,
