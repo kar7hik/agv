@@ -341,6 +341,23 @@ def main():
         print("Serial connected.")
         clear_serial_buffer(ser)
 
+        camera = open_camera()
+        print("Camera opened.")
+
+        detector = create_apriltag_detector()
+        print("Apriltag detector created.")
+
+        while True:
+            frame = camera.capture_array()
+            detections = detect_apriltags(frame, detector)
+            display_frame = draw_apriltag_detections(frame, detections, tag_lookup)
+            cv2.imshow(WINDOW_NAME, display_frame)
+
+            key = cv2.waitKey(1) & 0xFF
+
+            if key == ord("q") or key == 27:
+                break
+
     finally:
         if ser is not None:
             try:
