@@ -215,6 +215,16 @@ def build_map_lookup(map_data):
 def open_camera():
     camera = Picamera2()
 
+    cam.set_controls(
+        {
+            "AwbMode": False,
+            "ExposureTime": 5000,
+            "AnalogueGain": 1.0,
+            "AwbEnable": False,
+            "ColourGains": (1.7, 1.7),
+        }
+    )
+
     configuration = camera.create_preview_configuration(
         main={
             "format": "RGB888",
@@ -233,15 +243,17 @@ def open_camera():
     return camera
 
 
+def get_frame(cam):
+    return cam.capture_array()
+
+
 def create_apriltag_detector():
     return Detector(
         families=APRILTAG_FAMILY,
         nthreads=4,
         quad_decimate=1.0,
         quad_sigma=0.0,
-        refine_edges=1,
-        decode_sharpening=0.25,
-        debug=0,
+        refine_edges=True,
     )
 
 
@@ -267,6 +279,64 @@ def normalize_angle_deg(angle_deg):
         angle_deg += 360.0
 
     return angle_deg
+
+
+def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
+    if highlight_ids is None:
+        highlight_ids = set()
+    h, w = frame.shape[:2]
+    cx, cy = w // 2, h // 2
+    cv2.line(frame, (0, cy), (w, cy), (128, 128, 128), 1)
+    cv2.line(frame, (cx, 0), (cx, h), (128, 128, 128), 1)
+    cv2.circle(frame, (cx, cy), 4, (128, 128, 128), -1)
+
+    for d in detections:
+        corners = d.corners.astype(int)
+        is_unexpected = d.tag_id in highlight_ids
+        color = (0, 0, 255) if is_unexpected else (0, 255, 0)
+        thickness = 3 if is_unexpected else 2
+        for i in range(4):
+            cv2.line(
+                frame, tuple(corners[i]), tuple(corners[(i + 1) % 4]), color, thickness
+            )
+        center = tuple(d.center.astype(int))
+        cv2.circle(frame, center, 5, color, -1)
+        x, y = int(corners[0][0]), int(corners[0][1])
+        label = f"ID:{d.tag_id}" + (" [UNEXPECTED]" if is_unexpected else "")
+        cv2.putText(
+            frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, thickness
+        )
+        info_y = y + 15
+        for lbl, val, fmt in [("Head", d.heading, ".1f"), ("Lat", d.lateral, ".3f")]:
+            text = f"{lbl}: {val:{fmt}}" if val is not None else f"{lbl}: N/A"
+            cv2.putText(
+                frame,
+                text,
+                (x, info_y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.4,
+                (255, 255, 255),
+                1,
+            )
+            info_y += 14
+        cv2.line(frame, (cx, cy), center, color, 1)
+
+    if status_lines:
+        for i, line in enumerate(status_lines):
+            cv2.putText(
+                frame,
+                line,
+                (10, 25 + i * 22),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (0, 255, 255),
+                2,
+            )
+    return frame
+
+
+def show_frame(frame):
+    cv2.imshow("AGV Navigation", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
 
 
 def draw_apriltag_detections(frame, detections, tag_lookup):
@@ -350,13 +420,9 @@ def main():
         while True:
             frame = camera.capture_array()
             detections = detect_apriltags(frame, detector)
-            display_frame = draw_apriltag_detections(frame, detections, tag_lookup)
-            cv2.imshow(WINDOW_NAME, display_frame)
-
-            key = cv2.waitKey(1) & 0xFF
-
-            if key == ord("q") or key == 27:
-                break
+            draw_frame(frame, detections)
+            show_frame(frame)
+            cv2.waitKey(1)
 
     finally:
         if ser is not None:
