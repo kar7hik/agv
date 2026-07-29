@@ -215,7 +215,7 @@ def build_map_lookup(map_data):
 def open_camera():
     camera = Picamera2()
 
-    cam.set_controls(
+    camera.set_controls(
         {
             "AwbMode": False,
             "ExposureTime": 5000,
