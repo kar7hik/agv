@@ -304,7 +304,6 @@ def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
     if highlight_ids is None:
         highlight_ids = set()
 
-    height, weight = frame.shape[:2]
     optical_center = (int(round(CX)), int(round(CY)))
     cv2.drawMarker(
         frame,
@@ -361,8 +360,15 @@ def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
             lineType=cv2.LINE_AA,
         )
 
-        text_x = max(5, int(np.min(corners[:, 0])))
-        text_y = max(18, int(np.min(corners[:, 1])) - 8)
+        tag_left = int(np.min(corners[:, 0]))
+        tag_top = int(np.min(corners[:, 1]))
+        tag_bottom = int(np.max(corners[:, 1]))
+
+        text_x = max(5, tag_left)
+
+        label_text_y = max(18, tag_top - 8)
+        lateral_text_y = tag_bottom + 18
+        heading_text_y = lateral_y + 16
 
         label = f"ID:{tag_id}"
 
@@ -372,7 +378,7 @@ def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
         cv2.putText(
             frame,
             label,
-            (text_x, text_y),
+            (text_x, label_text_y),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,
             tag_color,
@@ -392,32 +398,40 @@ def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
         else:
             heading_text = f"Heading: {detection.heading:+.2f} deg"
 
-        info_text = [lateral_text, heading_text]
+        cv2.putText(
+            frame,
+            lateral_text,
+            (text_x, lateral_text_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            COLOR_TEXT,
+            1,
+            cv2.LINE_AA,
+        )
 
-        for index, text in enumerate(info_text):
+        cv2.putText(
+            frame,
+            heading_text,
+            (text_x, heading_text_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            COLOR_TEXT,
+            1,
+            cv2.LINE_AA,
+        )
+
+    if status_lines:
+        for index, line in enumerate(status_lines):
             cv2.putText(
                 frame,
-                text,
-                (text_x, text_y + 17 + index * 15),
+                line,
+                (10, 25 + index * 22),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.45,
-                COLOR_TEXT,
+                0.55,
+                COLOR_HEADING_ARROW,
                 1,
                 cv2.LINE_AA,
             )
-
-        if status_lines:
-            for index, line in enumerate(status_lines):
-                cv2.putText(
-                    frame,
-                    line,
-                    (10, 25 + index * 22),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.55,
-                    COLOR_HEADING_ARROW,
-                    1,
-                    cv2.LINE_AA,
-                )
 
     return frame
 
