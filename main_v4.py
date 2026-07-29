@@ -366,27 +366,27 @@ def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
 
         image_offset_px = math.hypot(delta_x_px, delta_y_px)
 
-        if detection.heading is not None:
-            heading_rad = math.radians(detection.heading)
-            arrow_length_px = 35
+        # if detection.heading is not None:
+        #     heading_rad = math.radians(detection.heading)
+        #     arrow_length_px = 35
 
-            heading_endpoint = (
-                center[0] + int(arrow_length_px * math.cos(heading_rad)),
-                center[1] - int(arrow_length_px * math.sin(heading_rad)),
-            )
+        #     heading_endpoint = (
+        #         center[0] + int(arrow_length_px * math.cos(heading_rad)),
+        #         center[1] - int(arrow_length_px * math.sin(heading_rad)),
+        #     )
 
-            cv2.arrowedLine(
-                frame,
-                center,
-                heading_endpoint,
-                COLOR_HEADING_ARROW,
-                thickness=2,
-                line_type=cv2.LINE_AA,
-                tipLength=0.25,
-            )
+        #     cv2.arrowedLine(
+        #         frame,
+        #         center,
+        #         heading_endpoint,
+        #         COLOR_HEADING_ARROW,
+        #         thickness=2,
+        #         line_type=cv2.LINE_AA,
+        #         tipLength=0.25,
+        #     )
 
         text_x = max(5, int(np.min(corners[:, 0])))
-        text_y = max(5, int(np.min(corners[:, 1])))
+        text_y = max(18, int(np.min(corners[:, 1])) -)
 
         label = f"ID:{tag_id}"
 
