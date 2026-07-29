@@ -404,8 +404,6 @@ def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
             cv2.LINE_AA,
         )
 
-        image_text = f"Image offset: {image_offset_px:.2f} px"
-
         if detection.lateral is None:
             lateral_text = "Lateral: N/A"
 
@@ -418,7 +416,7 @@ def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
         else:
             heading_text = f"Heading: {detection.heading:+.2f} deg"
 
-        info_text = [image_text, lateral_text, heading_text]
+        info_text = [lateral_text, heading_text]
 
         for index, text in enumerate(info_text):
             cv2.putText(
