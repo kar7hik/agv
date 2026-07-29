@@ -368,7 +368,7 @@ def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
 
         label_text_y = max(18, tag_top - 8)
         lateral_text_y = tag_bottom + 18
-        heading_text_y = lateral_y + 16
+        heading_text_y = lateral_text_y + 16
 
         label = f"ID:{tag_id}"
 
