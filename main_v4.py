@@ -386,7 +386,7 @@ def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
         #     )
 
         text_x = max(5, int(np.min(corners[:, 0])))
-        text_y = max(18, int(np.min(corners[:, 1])) -)
+        text_y = max(18, int(np.min(corners[:, 1])) - 8)
 
         label = f"ID:{tag_id}"
 
