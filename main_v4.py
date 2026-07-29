@@ -52,6 +52,14 @@ CAL_TIMEOUT_S = 20.0
 DRIVE_SPEED_MPS = 0.030
 
 
+COLOR_OPTICAL_CENTER = (180, 180, 180)
+COLOR_NORMAL_TAG = (0, 220, 0)
+COLOR_UNEXPECTED_TAG = (0, 0, 255)
+COLOR_CENTER_LINE = (255, 180, 0)
+COLOR_HEADING_ARROW = (0, 255, 255)
+COLOR_TEXT = (255, 255, 255)
+
+
 def open_serial():
     ser = serial.Serial(SERIAL_PORT, SERIAL_BAUD, timeout=READ_TIMEOUT_S)
     time.sleep(2.0)
@@ -214,17 +222,6 @@ def build_map_lookup(map_data):
 # Camera and Apriltag Detector:
 def open_camera():
     camera = Picamera2()
-
-    camera.set_controls(
-        {
-            "AwbMode": False,
-            "ExposureTime": 5000,
-            "AnalogueGain": 1.0,
-            "AwbEnable": False,
-            "ColourGains": (1.7, 1.7),
-        }
-    )
-
     configuration = camera.create_preview_configuration(
         main={
             "format": "RGB888",
@@ -258,7 +255,7 @@ def create_apriltag_detector():
 
 
 def detect_apriltags(frame, detector):
-    gray_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+    gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
     detections = detector.detect(
         gray_frame,
@@ -294,71 +291,30 @@ def compute_tag_lateral(detection):
 
 
 def enrich_detections(detections):
-    for d in detections:
-        d.heading = compute_tag_heading(d)
-        d.lateral = compute_tag_lateral(d)
+    for detection in detections:
+        detection.heading = compute_tag_heading(detection)
+        detection.lateral = compute_tag_lateral(detection)
+
+
+def show_frame(frame):
+    cv2.imshow(WINDOW_NAME, frame)
 
 
 def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
     if highlight_ids is None:
         highlight_ids = set()
-    h, w = frame.shape[:2]
-    cx, cy = w // 2, h // 2
-    cv2.line(frame, (0, cy), (w, cy), (128, 128, 128), 1)
-    cv2.line(frame, (cx, 0), (cx, h), (128, 128, 128), 1)
-    cv2.circle(frame, (cx, cy), 4, (128, 128, 128), -1)
 
-    for d in detections:
-        corners = d.corners.astype(int)
-        is_unexpected = d.tag_id in highlight_ids
-        color = (0, 0, 255) if is_unexpected else (0, 255, 0)
-        thickness = 3 if is_unexpected else 2
-        for i in range(4):
-            cv2.line(
-                frame, tuple(corners[i]), tuple(corners[(i + 1) % 4]), color, thickness
-            )
-        center = tuple(d.center.astype(int))
-        cv2.circle(frame, center, 5, color, -1)
-        x, y = int(corners[0][0]), int(corners[0][1])
-        label = f"ID:{d.tag_id}" + (" [UNEXPECTED]" if is_unexpected else "")
-        cv2.putText(
-            frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, thickness
-        )
-        info_y = y + 15
-        for lbl, val, fmt in [("Head", d.heading, ".1f"), ("Lat", d.lateral, ".3f")]:
-            text = f"{lbl}: {val:{fmt}}" if val is not None else f"{lbl}: N/A"
-            cv2.putText(
-                frame,
-                text,
-                (x, info_y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.4,
-                (255, 255, 255),
-                1,
-            )
-            info_y += 14
-        cv2.line(frame, (cx, cy), center, color, 1)
-
-    if status_lines:
-        for i, line in enumerate(status_lines):
-            cv2.putText(
-                frame,
-                line,
-                (10, 25 + i * 22),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                (0, 255, 255),
-                2,
-            )
-    return frame
-
-
-def show_frame(frame):
-    cv2.imshow("AGV Navigation", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-
-
-def draw_apriltag_detections(frame, detections, tag_lookup):
-    display_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    height, weight = frame.shape[:2]
+    optical_center = (int(round(CX)), int(round(CY)))
+    cv2.drawMarker(
+        frame,
+        optical_center,
+        COLOR_OPTICAL_CENTER,
+        markerType=cv2.MARKER_CROSS,
+        markerSize=24,
+        thickness=1,
+        line_type=cv2.LINE_AA,
+    )
 
     for detection in detections:
         tag_id = int(detection.tag_id)
@@ -366,45 +322,130 @@ def draw_apriltag_detections(frame, detections, tag_lookup):
         corners = np.rint(detection.corners).astype(np.int32)
         center_x = int(round(detection.center[0]))
         center_y = int(round(detection.center[1]))
+        center = (center_x, center_y)
+
+        is_unexpected = tag_id in highlight_ids
+
+        if is_unexpected:
+            tag_color = COLOR_UNEXPECTED_TAG
+            boundary_thickness = 3
+
+        else:
+            tag_color = COLOR_NORMAL_TAG
+            boundary_thickness = 2
 
         cv2.polylines(
-            display_frame,
+            frame,
             [corners],
             isClosed=True,
-            color=(0, 255, 0),
-            thickness=2,
+            color=tag_color,
+            thickness=boundary_thickness,
+            lineType=cv2.LINE_AA,
         )
 
         cv2.circle(
-            display_frame,
-            (center_x, center_y),
+            frame,
+            center,
             radius=5,
-            color=(0, 0, 255),
+            color=tag_color,
             thickness=-1,
+            lineType=cv2.LINE_AA,
         )
 
-        tag_info = tag_lookup.get(tag_id)
+        cv2.line(
+            frame,
+            optical_center,
+            center,
+            COLOR_CENTER_LINE,
+            thickness=1,
+            lineType=cv2.LINE_AA,
+        )
 
-        if tag_info is None:
-            label = f"ID: {tag_id} UNKNOWN"
-        else:
-            landmark_id = tag_info["landmark_id"]
-            position = tag_info["position"]
-            label = f"ID: {tag_id} ({landmark_id} {position})"
+        delta_x_px = center[0] - optical_center[0]
+        delta_y_px = center[1] - optical_center[1]
 
-        text_position = (int(corners[0][0]), int(corners[0][1]) - 8)
+        image_offset_px = math.hypot(delta_x_px, delta_y_px)
+
+        if detection.heading is not None:
+            heading_rad = math.radians(detection.heading)
+            arrow_length_px = 35
+
+            heading_endpoint = (
+                center[0] + int(arrow_length_px * math.cos(heading_rad)),
+                center[1] - int(arrow_length_px * math.sin(heading_rad)),
+            )
+
+            cv2.arrowedLine(
+                frame,
+                center,
+                heading_endpoint,
+                COLOR_HEADING_ARROW,
+                thickness=2,
+                line_type=cv2.LINE_AA,
+                tipLength=0.25,
+            )
+
+        text_x = max(5, int(np.min(corners[:, 0])))
+        text_y = max(5, int(np.min(corners[:, 1])))
+
+        label = f"ID:{tag_id}"
+
+        if is_unexpected:
+            label += " [UNEXPECTED]"
 
         cv2.putText(
-            display_frame,
+            frame,
             label,
-            text_position,
+            (text_x, text_y),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,
-            (0, 0, 255),
+            tag_color,
+            1,
             cv2.LINE_AA,
         )
 
-    return display_frame
+        image_text = f"Image offset: {image_offset_px:.2f} px"
+
+        if detection.lateral is None:
+            lateral_text = "Lateral: N/A"
+
+        else:
+            lateral_text = f"Lateral: {detection.lateral * 1000.0:+.2f} mm"
+
+        if detection.heading is None:
+            heading_text = "Heading: N/A"
+
+        else:
+            heading_text = f"Heading: {detection.heading:+.2f} deg"
+
+        info_text = [image_text, lateral_text, heading_text]
+
+        for index, text in enumerate(info_text):
+            cv2.putText(
+                frame,
+                text,
+                (text_x, text_y + 17 * index * 15),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                COLOR_TEXT,
+                1,
+                cv2.LINE_AA,
+            )
+
+        if status_lines:
+            for index, line in enumerate(status_lines):
+                cv2.putText(
+                    frame,
+                    line,
+                    (10, 25 + index * 22),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.55,
+                    COLOR_HEADING_ARROW,
+                    1,
+                    cv2.LINE_AA,
+                )
+
+    return frame
 
 
 # ============================================================================
@@ -436,7 +477,8 @@ def main():
         print("Apriltag detector created.")
 
         while True:
-            frame = camera.capture_array()
+            rgb_frame = camera.capture_array()
+            frame = cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2BGR)
             detections = detect_apriltags(frame, detector)
             enrich_detections(detections)
             draw_frame(frame, detections)
