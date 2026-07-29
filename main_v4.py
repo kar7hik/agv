@@ -304,15 +304,35 @@ def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
     if highlight_ids is None:
         highlight_ids = set()
 
-    optical_center = (int(round(CX)), int(round(CY)))
-    cv2.drawMarker(
+    height, width = frame.shape[:2]
+    optical_center_x = int(round(CX))
+    optical_center_y = int(round(CY))
+
+    cv2.line(
         frame,
-        optical_center,
+        (0, optical_center_y),
+        (width - 1, optical_center_y),
         COLOR_OPTICAL_CENTER,
-        markerType=cv2.MARKER_CROSS,
-        markerSize=24,
         thickness=1,
-        line_type=cv2.LINE_AA,
+        lineType=cv2.LINE_AA,
+    )
+
+    cv2.line(
+        frame,
+        (optical_center_x, 0),
+        (optical_center_x, height - 1),
+        COLOR_OPTICAL_CENTER,
+        thickness=1,
+        lineType=cv2.LINE_AA,
+    )
+
+    cv2.circle(
+        frame,
+        (optical_center_x, optical_center_y),
+        radius=5,
+        color=COLOR_OPTICAL_CENTER,
+        thickness=-1,
+        lineType=cv2.LINE_AA,
     )
 
     for detection in detections:
