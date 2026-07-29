@@ -281,6 +281,24 @@ def normalize_angle_deg(angle_deg):
     return angle_deg
 
 
+def compute_tag_heading(detection):
+    if detection.pose_R is None:
+        return None
+    return normalize_angle(
+        math.degrees(math.atan2(detection.pose_R[1, 0], detection.pose_R[0, 0]))
+    )
+
+
+def compute_tag_lateral(detection):
+    return float(detection.pose_t[0][0]) if detection.pose_t is not None else None
+
+
+def enrich_detections(detections):
+    for d in detections:
+        d.heading = compute_tag_heading(d)
+        d.lateral = compute_tag_lateral(d)
+
+
 def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
     if highlight_ids is None:
         highlight_ids = set()
@@ -420,6 +438,7 @@ def main():
         while True:
             frame = camera.capture_array()
             detections = detect_apriltags(frame, detector)
+            enrich_detections(detections)
             draw_frame(frame, detections)
             show_frame(frame)
             cv2.waitKey(1)
