@@ -307,6 +307,7 @@ def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
     height, width = frame.shape[:2]
     optical_center_x = int(round(CX))
     optical_center_y = int(round(CY))
+    optical_center = (optical_center_x, optical_center_y)
 
     cv2.line(
         frame,
@@ -328,7 +329,7 @@ def draw_frame(frame, detections, status_lines=None, highlight_ids=None):
 
     cv2.circle(
         frame,
-        (optical_center_x, optical_center_y),
+        optical_center,
         radius=5,
         color=COLOR_OPTICAL_CENTER,
         thickness=-1,
