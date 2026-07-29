@@ -284,7 +284,7 @@ def normalize_angle_deg(angle_deg):
 def compute_tag_heading(detection):
     if detection.pose_R is None:
         return None
-    return normalize_angle(
+    return normalize_angle_deg(
         math.degrees(math.atan2(detection.pose_R[1, 0], detection.pose_R[0, 0]))
     )
 
