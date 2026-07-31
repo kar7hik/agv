@@ -296,6 +296,73 @@ def enrich_detections(detections):
         detection.lateral = compute_tag_lateral(detection)
 
 
+def optical_center_dist_squared(detection):
+    delta_x_px = float(detection.center[0]) - CX
+    delta_y_px = float(detection.center[1]) - CY
+
+    return delta_x_px * delta_x_px + delta_y_px * delta_y_px
+
+
+def is_usable_detection(detection, tag_lookup):
+    tag_id = int(detection.tag_id)
+    tag_info = tag_lookup.get(tag_id)
+
+    if tag_info is None:
+        return False
+
+    if detection.hamming != 0:
+        return False
+
+    if detection.pose_t is None:
+        return False
+
+    if detection.pose_R is None:
+        return False
+
+    return True
+
+
+def compute_landmark_center_pose(detection, tag_lookup):
+    tag_id = int(detection.tag_id)
+    tag_info = tag_lookup.get(tag_id)
+
+    position = tag_info["position"]
+    helper_x_m, helper_y_m = HELPER_OFFSETS_M[position]
+
+    detected_tag_pose = np.asarray(detection.pose_t, dtype=np.float64).reshape(3)
+    tag_rotation = np.asarray(detection.pose_R, dtype=np.float64).reshape(3, 3)
+
+    helper_offset = np.array([helper_x_m, helper_y_m, 0.0], dtype=np.float64)
+    helper_offset_in_camera = tag_rotation @ helper_offset
+    landmark_center_pose = detected_tag_pose - helper_offset_in_camera
+
+    return landmark_center_pose
+
+
+def compute_landmark_center_lateral(detection, tag_lookup):
+    center_pose = compute_landmark_center_pose(detection, tag_lookup)
+    return float(center_pose[0])
+
+
+def select_best_detection(detections, tag_lookup):
+    usable_detections = []
+
+    for detection in detections:
+        if is_usable_detection(detection, tag_lookup):
+            usable_detections.append(detection)
+
+    if len(usable_detections) == 0:
+        return None
+
+    return min(
+        usable_detections,
+        key=lambda detection: (
+            optical_center_dist_squared(detection),
+            -float(detection.decision_margin),
+        ),
+    )
+
+
 def show_frame(frame):
     cv2.imshow(WINDOW_NAME, frame)
 
@@ -479,7 +546,7 @@ def main():
         print("Serial connected.")
         clear_serial_buffer(ser)
 
-        camera = open_camera()
+        camera = open_camera()Computation of lateral and 
         print("Camera opened.")
 
         detector = create_apriltag_detector()
