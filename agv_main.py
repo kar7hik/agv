@@ -52,6 +52,7 @@ HELPER_OFFSETS_M = {
 LATERAL_SIGN = 1.0
 HEADING_SIGN = -1.0
 HEADING_OFFSET_DEG = 0.0
+CAMERA_ORIENTATION_DEG = 180.0
 
 # Display Colors:
 COLOR_IMAGE_CENTER = (180, 180, 180)
@@ -289,8 +290,9 @@ def robot_heading_deg(tag, tag_lookup, landmarks):
     map_heading_deg = float(landmarks[landmark_id].get("heading_offset_deg", 0.0))
 
     tag_yaw = tag_yaw_deg(tag)
+    yaw_corrected = normalize_angle_deg(tag_yaw - CAMERA_ORIENTATION_DEG)
     robot_heading = normalize_angle_deg(
-        map_heading_deg + HEADING_SIGN * tag_yaw + HEADING_OFFSET_DEG
+        map_heading_deg + HEADING_SIGN * yaw_corrected + HEADING_OFFSET_DEG
     )
 
     return robot_heading
