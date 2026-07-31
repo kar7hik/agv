@@ -315,9 +315,19 @@ def robot_heading_deg(tag, tag_lookup, landmarks):
 
 
 # Lateral and Heading Errors:
+def lateral_error(tag, tag_lookup):
+    tag_id = int(tag.tag_id)
+    position = tag_lookup[tag_id]["position"]
+
+    tag_x = float(tag.pose_t[0][0])
+    helper_x, _ = HELPER_OFFSETS_M[position]
+
+    return tag_x - helper_x
+
+
 def calculate_errors(tag, tag_lookup, landmarks):
     center = center_pose(tag, tag_lookup)
-    lateral_error_m = float(center[0])
+    lateral_error_m = lateral_error(tag, tag_lookup)
     robot_heading = robot_heading_deg(tag, tag_lookup, landmarks)
     heading_error_deg = normalize_angle_deg(PATH_HEADING_DEG - robot_heading)
 
