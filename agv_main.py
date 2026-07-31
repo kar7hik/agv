@@ -28,7 +28,7 @@ PRINT_PERIOD_S = 0.5
 
 # Map and Path Parameters:
 MAP_FILE = "./maps/workspace.json"
-EXPECTED_ID = 0
+EXPECTED_ID = 6
 
 # Required heading of the current path segment.
 PATH_HEADING_DEG = 0.0
