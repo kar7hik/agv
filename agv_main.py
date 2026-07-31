@@ -48,7 +48,7 @@ HELPER_OFFSETS_M = {
     "south_east": (+0.015, -0.015),
 }
 
-TAG_FRAME_ROTATION_DEG = 180.0
+GRID_TO_TAG_YAW_DEG = 180.0
 HEADING_TRIM_DEG = 0.0
 
 # Display Colors:
@@ -71,7 +71,7 @@ def rotation_z_deg(angle_deg):
     )
 
 
-GRID_TO_TAG_R = rotation_z_deg(TAG_FRAME_ROTATION_DEG)
+GRID_TO_TAG_R = rotation_z_deg(GRID_TO_TAG_YAW_DEG)
 
 
 # Map Loading and Lookups:
@@ -274,10 +274,10 @@ def center_pose(tag, tag_lookup):
     t, R = tag_pose(tag)
 
     # Landmark-grid frame -> Camera frame.
-    R_grid_camera = R @ GRID_TO_TAG_R
+    R_camera_grid = R @ GRID_TO_TAG_R
 
     # Center-to-helper displacement expressed in camera coordinates.
-    offset_camera = R_grid_camera @ offset
+    offset_camera = R_camera_grid @ offset
 
     # detected helper = center + rotate offset
     #
@@ -288,23 +288,15 @@ def center_pose(tag, tag_lookup):
     return center
 
 
+# Heading Computation:
 def tag_heading_deg(tag):
     _, R = tag_pose(tag)
-    R_grid_camera = R @ GRID_TO_TAG_R
+    R_camera_grid = R @ GRID_TO_TAG_R
 
-    heading_rad = math.atan2(R_grid_camera[1, 0], R_grid_camera[0, 0])
+    heading_rad = math.atan2(R_camera_grid[1, 0], R_camera_grid[0, 0])
     heading_deg = math.degrees(heading_rad)
 
     return normalize_angle_deg(heading_deg)
-
-
-# Heading Computation:
-def tag_yaw_deg(tag):
-    _, R = tag_pose(tag)
-    yaw_rad = math.atan2(R[1, 0], R[0, 0])
-    yaw_deg = math.degrees(yaw_rad)
-
-    return normalize_angle_deg(yaw_deg)
 
 
 def robot_heading_deg(tag, tag_lookup, landmarks):
@@ -340,7 +332,7 @@ def draw_frame(frame, detections, expected_tags, selected_id, status_lines):
 
     image_center = (image_center_x, image_center_y)
 
-    # Full vertical image-center line
+    # Full horizontal image-center line
     cv2.line(
         frame,
         (0, image_center_y),
@@ -350,7 +342,7 @@ def draw_frame(frame, detections, expected_tags, selected_id, status_lines):
         lineType=cv2.LINE_AA,
     )
 
-    # Full horizontal image-center line
+    # Full vertical image-center line
     cv2.line(
         frame,
         (image_center_x, 0),
@@ -449,7 +441,7 @@ def draw_frame(frame, detections, expected_tags, selected_id, status_lines):
             raw_lateral_text = "Lat: N/A"
 
         if tag.pose_R is not None:
-            yaw_text = f"Yaw: {tag_yaw_deg(tag):+.2f} deg"
+            yaw_text = f"Yaw: {tag_heading_deg(tag):+.2f} deg"
 
         else:
             yaw_text = "Yaw: N/A"
