@@ -618,119 +618,6 @@ def send_keyboard_commands(ser, imu_ready, motors_enabled, best, lateral_error_m
     if key == ord("q") or key == ord("Q"):
         return False
 
-    elif key == ord("p") or key == ord("P"):
-        ping(ser)
-
-    elif key == ord("c") or key == ord("C"):
-        print("Preparing for IMU calibration...")
-        stop_ok = stop(ser)
-        motor_off_ok = motor_off(ser)
-
-        if motor_off_ok:
-            motors_enabled = False
-
-        if not stop_ok or not motor_off_ok:
-            print("Failed to stop motors before IMU calibration.")
-
-        else:
-            print("Keep the robot completely stationary...")
-            calibration_ok = cal_imu(ser)
-
-            if not calibration_ok:
-                imu_ready = False
-                print("IMU calibration failed.")
-
-            else:
-                zero_ok = zero_imu(ser)
-                imu_ready = zero_ok
-
-                if zero_ok:
-                    print("IMU calibration complete.")
-                else:
-                    print("IMU zeroing failed.")
-
-    elif key == ord("m") or key == ord("M"):
-        if not imu_ready:
-            print("Motors not enabled. Enable IMU first.")
-
-        else:
-            motors_enabled = motor_on(ser)
-
-            if motors_enabled:
-                print("Motors enabled.")
-            else:
-                print("Failed to enable motors.")
-
-    elif key == ord("t") or key == ord("T"):
-        status(ser)
-
-    elif key == ord("z") or key == ord("Z"):
-        if imu_ready:
-            zero_imu(ser)
-            print("IMU zeroed.")
-
-        else:
-            print("IMU not ready.")
-
-    elif key == ord("f") or key == ord("F"):
-        stop(ser)
-
-        if motor_off(ser):
-            driving = False
-            motors_enabled = False
-            print("Motors disabled.")
-
-    elif key == ord("s") or key == ord("S"):
-        if best is None:
-            print("SYNC rejected: no usable tag")
-
-        elif robot_heading is None:
-            print("SYNC rejected: no heading")
-
-        else:
-            print(f"SYNC to {robot_heading:.2f} deg")
-            sync_ok = sync(ser, robot_heading)
-
-            if sync_ok:
-                print("SYNC OK")
-            else:
-                print("SYNC rejected")
-
-    elif key == ord("d") or key == ord("D"):
-        if driving:
-            print("DRIVE rejected: already driving")
-
-        if not imu_ready:
-            print("DRIVE rejected: IMU not ready")
-
-        elif not motors_enabled:
-            print("DRIVE rejected: motors not enabled")
-
-        elif best is None:
-            print("DRIVE rejected: no usable tag")
-
-        elif lateral_error_m is None or robot_heading is None:
-            print("DRIVE rejected: Observation is incomplete")
-
-        else:
-            sync_ok = sync(ser, robot_heading)
-
-            if sync_ok:
-                print(
-                    f"DRIVE_SPEED_MPS={DRIVE_SPEED_MPS} PATH_HEADING_DEG={PATH_HEADING_DEG} lateral_error_m={lateral_error_m}"
-                )
-                drive_ok = drive(
-                    ser, DRIVE_SPEED_MPS, PATH_HEADING_DEG, lateral_error_m
-                )
-
-                if drive_ok:
-                    driving = True
-                    print("DRIVE OK")
-                else:
-                    print("DRIVE rejected")
-            else:
-                print("SYNC rejected. DRIVE cancelled.")
-
 
 def main():
     camera = None
@@ -829,15 +716,123 @@ def main():
             #     last_print_time = now
 
             if serial_enabled:
-                handle_serial_commands(
-                    ser,
-                    imu_ready,
-                    motors_enabled,
-                    best,
-                    robot_heading,
-                    lateral_error_m,
-                    driving,
-                )
+                key = cv2.waitKey(1)
+
+                if key == ord("q") or key == ord("Q"):
+                    return False
+
+                elif key == ord("p") or key == ord("P"):
+                    ping(ser)
+
+                elif key == ord("c") or key == ord("C"):
+                    print("Preparing for IMU calibration...")
+                    stop_ok = stop(ser)
+                    motor_off_ok = motor_off(ser)
+
+                    if motor_off_ok:
+                        motors_enabled = False
+
+                    if not stop_ok or not motor_off_ok:
+                        print("Failed to stop motors before IMU calibration.")
+
+                    else:
+                        print("Keep the robot completely stationary...")
+                        calibration_ok = cal_imu(ser)
+
+                        if not calibration_ok:
+                            imu_ready = False
+                            print("IMU calibration failed.")
+
+                        else:
+                            zero_ok = zero_imu(ser)
+                            imu_ready = zero_ok
+
+                            if zero_ok:
+                                print("IMU calibration complete.")
+                            else:
+                                print("IMU zeroing failed.")
+
+                elif key == ord("m") or key == ord("M"):
+                    if not imu_ready:
+                        print("Motors not enabled. Enable IMU first.")
+
+                    else:
+                        motors_enabled = motor_on(ser)
+
+                        if motors_enabled:
+                            print("Motors enabled.")
+                        else:
+                            print("Failed to enable motors.")
+
+                elif key == ord("t") or key == ord("T"):
+                    status(ser)
+
+                elif key == ord("z") or key == ord("Z"):
+                    if imu_ready:
+                        zero_imu(ser)
+                        print("IMU zeroed.")
+
+                    else:
+                        print("IMU not ready.")
+
+                elif key == ord("f") or key == ord("F"):
+                    stop(ser)
+
+                    if motor_off(ser):
+                        driving = False
+                        motors_enabled = False
+                        print("Motors disabled.")
+
+                elif key == ord("s") or key == ord("S"):
+                    if best is None:
+                        print("SYNC rejected: no usable tag")
+
+                    elif robot_heading is None:
+                        print("SYNC rejected: no heading")
+
+                    else:
+                        print(f"SYNC to {robot_heading:.2f} deg")
+                        sync_ok = sync(ser, robot_heading)
+
+                        if sync_ok:
+                            print("SYNC OK")
+                        else:
+                            print("SYNC rejected")
+
+                elif key == ord("d") or key == ord("D"):
+                    if driving:
+                        print("DRIVE rejected: already driving")
+
+                    if not imu_ready:
+                        print("DRIVE rejected: IMU not ready")
+
+                    elif not motors_enabled:
+                        print("DRIVE rejected: motors not enabled")
+
+                    elif best is None:
+                        print("DRIVE rejected: no usable tag")
+
+                    elif lateral_error_m is None or robot_heading is None:
+                        print("DRIVE rejected: Observation is incomplete")
+
+                    else:
+                        sync_ok = sync(ser, robot_heading)
+
+                        if sync_ok:
+                            print(
+                                f"DRIVE_SPEED_MPS={DRIVE_SPEED_MPS} PATH_HEADING_DEG={PATH_HEADING_DEG} lateral_error_m={lateral_error_m}"
+                            )
+                            drive_ok = drive(
+                                ser, DRIVE_SPEED_MPS, PATH_HEADING_DEG, lateral_error_m
+                            )
+
+                            if drive_ok:
+                                driving = True
+                                print("DRIVE OK")
+                            else:
+                                print("DRIVE rejected")
+                        else:
+                            print("SYNC rejected. DRIVE cancelled.")
 
             else:
                 key = cv2.waitKey(1)
