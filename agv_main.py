@@ -391,8 +391,8 @@ def draw_frame(frame, detections, expected_tags, selected_id, status_lines):
         tag_left = int(np.min(corners[:, 0]))
         tag_top = int(np.min(corners[:, 1]))
 
-        text_x = max(5, tag_left + 8)
-        label_y = max(18, tag_top - 8)
+        text_x = max(5, tag_left + 15)
+        label_y = max(18, tag_top - 15)
 
         label = f"ID:{tag_id}"
 
