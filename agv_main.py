@@ -48,11 +48,7 @@ HELPER_OFFSETS_M = {
     "south_east": (+0.015, -0.015),
 }
 
-
-LATERAL_SIGN = -1.0
-HEADING_SIGN = -1.0
-HEADING_OFFSET_DEG = 0.0
-
+TAG_FRAME_ROTATION_DEG = 180.0
 
 # Display Colors:
 COLOR_IMAGE_CENTER = (180, 180, 180)
@@ -61,6 +57,20 @@ COLOR_SELECTED_TAG = (0, 255, 255)
 COLOR_OTHER_TAG = (255, 0, 255)
 COLOR_CENTER_LINE = (255, 180, 0)
 COLOR_TEXT = (255, 255, 255)
+
+
+def rotation_z_deg(angle_deg):
+    angle_rad = math.radians(angle_deg)
+    c = math.cos(angle_rad)
+    s = math.sin(angle_rad)
+
+    return np.array(
+        [[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]],
+        dtype=np.float64,
+    )
+
+
+GRID_TO_TAG_R = rotation_z_deg(TAG_FRAME_ROTATION_DEG)
 
 
 # Map Loading and Lookups:
@@ -262,8 +272,11 @@ def center_pose(tag, tag_lookup):
     offset = np.array([helper_x_m, helper_y_m, 0.0], dtype=np.float64)
     t, R = tag_pose(tag)
 
-    # Convert the helper offset from the tag frame into the camera frame.
-    offset_camera = R @ offset
+    # Landmark-grid frame -> Camera frame.
+    R_grid_camera = R @ GRID_TO_TAG_R
+
+    # Center-to-helper displacement expressed in camera coordinates.
+    offset_camera = R_grid_camera @ offset
 
     # detected helper = center + rotate offset
     #
@@ -272,6 +285,16 @@ def center_pose(tag, tag_lookup):
     center = t - offset_camera
 
     return center
+
+
+def tag_heading_deg(tag):
+    _, R = tag_pose(tag)
+    R_grid_camera = R @ GRID_TO_TAG_R
+
+    heading_rad = math.atan2(R_grid_camera[1, 0], R_grid_camera[0, 0])
+    heading_deg = math.degrees(heading_rad)
+
+    return normalize_angle_deg(heading_deg)
 
 
 # Heading Computation:
@@ -288,8 +311,12 @@ def robot_heading_deg(tag, tag_lookup, landmarks):
     landmark_id = tag_lookup[tag_id]["landmark_id"]
 
     map_heading_deg = float(landmarks[landmark_id].get("heading_offset_deg", 0.0))
-    tag_yaw = tag_yaw_deg(tag)
-    robot_heading = normalize_angle_deg(map_heading_deg + tag_yaw + HEADING_OFFSET_DEG)
+    tag_heading = tag_heading_deg(tag)
+
+    # A stationary floor tag appears to rotate opposite to the robot.
+    robot_heading = normalize_angle_deg(
+        map_heading_deg - tag_heading + HEADING_TRIM_DEG
+    )
 
     return robot_heading
 
@@ -297,7 +324,7 @@ def robot_heading_deg(tag, tag_lookup, landmarks):
 # Lateral and Heading Errors:
 def calculate_errors(tag, tag_lookup, landmarks):
     center = center_pose(tag, tag_lookup)
-    lateral_error_m = LATERAL_SIGN * float(center[0])
+    lateral_error_m = float(center[0])
     robot_heading = robot_heading_deg(tag, tag_lookup, landmarks)
     heading_error_deg = normalize_angle_deg(PATH_HEADING_DEG - robot_heading)
 
