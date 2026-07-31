@@ -590,10 +590,10 @@ float calculateDriveHeadingOffsetDeg(float progress) {
     const float initialHeadingErrorDeg = driveInitialHeadingErrorDeg * PI_F / 180.0f;
 
     const float lateralSlope = (driveLateralErrorM / LATERAL_CORRECTION_DISTANCE_M) * (6.0f * s * s - 6.0f * s);
-    const float initialHeadingSlope = tanf(initialHeadingErrorDeg) * (3.0f * s * s - 4.0f * s + 1.0f);
+    // const float initialHeadingSlope = tanf(initialHeadingErrorDeg) * (3.0f * s * s - 4.0f * s + 1.0f);
 
-    const float totalSlope = lateralSlope + initialHeadingSlope;
-    const float headingOffsetDeg = atanf(totalSlope) * 180.0f / PI_F;
+    // const float totalSlope = lateralSlope + initialHeadingSlope;
+    const float headingOffsetDeg = atanf(lateralSlope) * 180.0f / PI_F;
 
     return clampFloat(headingOffsetDeg, -MAX_DRIVE_HEADING_OFFSET_DEG, MAX_DRIVE_HEADING_OFFSET_DEG);
 }
@@ -639,7 +639,8 @@ void startDrive(float velocityMps, float pathHeadingDeg, float lateralErrorM) {
     At progress zero, the cubic desired heading should
     equal the robot's current corrected heading.
     */
-    driveHeadingOffsetDeg = driveInitialHeadingErrorDeg;
+    // driveHeadingOffsetDeg = driveInitialHeadingErrorDeg;
+    driveHeadingOffsetDeg = 0.0f;
 
     // Begin measuring correction distance from this point.
     driveStartLeftPulseCount = leftPulseCount;
