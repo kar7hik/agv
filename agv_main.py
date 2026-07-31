@@ -687,23 +687,23 @@ def main():
             draw_frame(frame, detections, expected_tags, selected_id, status_lines)
             cv2.imshow(WINDOW_NAME, frame)
 
-            now = time.monotonic()
+            # now = time.monotonic()
 
-            if now - last_print_time >= PRINT_PERIOD_S:
-                if best is None:
-                    print(f"Expected {EXPECTED_ID}: no usable tag")
+            # if now - last_print_time >= PRINT_PERIOD_S:
+            #     if best is None:
+            #         print(f"Expected {EXPECTED_ID}: no usable tag")
 
-                else:
-                    print(
-                        f"Expected={EXPECTED_ID} "
-                        f"Selected={selected_id} "
-                        f"Position={position} "
-                        f"Lateral={lateral_error_m * 1000.0:.2f} mm "
-                        f"Robot heading={robot_heading:.2f} deg "
-                        f"Heading error={heading_error:.2f} deg"
-                    )
+            #     else:
+            #         print(
+            #             f"Expected={EXPECTED_ID} "
+            #             f"Selected={selected_id} "
+            #             f"Position={position} "
+            #             f"Lateral={lateral_error_m * 1000.0:.2f} mm "
+            #             f"Robot heading={robot_heading:.2f} deg "
+            #             f"Heading error={heading_error:.2f} deg"
+            #         )
 
-                last_print_time = now
+            #     last_print_time = now
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q") or key == ord("Q"):
