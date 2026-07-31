@@ -428,7 +428,7 @@ def robot_heading_deg(tag, tag_lookup, landmarks):
 
     # A stationary floor tag appears to rotate opposite to the robot.
     robot_heading = normalize_angle_deg(
-        map_heading_deg - tag_heading + HEADING_TRIM_DEG
+        map_heading_deg + tag_heading + HEADING_TRIM_DEG
     )
 
     return robot_heading
@@ -791,8 +791,8 @@ def main():
                         print("SYNC rejected: no heading")
 
                     else:
-                        print(f"SYNC to {heading_error:.2f} deg")
-                        sync_ok = sync(ser, heading_error)
+                        print(f"SYNC to {robot_heading:.2f} deg")
+                        sync_ok = sync(ser, robot_heading)
 
                         if sync_ok:
                             print("SYNC OK")
@@ -816,7 +816,7 @@ def main():
                         print("DRIVE rejected: Observation is incomplete")
 
                     else:
-                        sync_ok = sync(ser, heading_error)
+                        sync_ok = sync(ser, robot_heading)
 
                         if sync_ok:
                             print(
