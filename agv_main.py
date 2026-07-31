@@ -402,7 +402,7 @@ def draw_frame(frame, detections, expected_tags, selected_id, status_lines):
         cv2.putText(
             frame,
             label,
-            (text_x, label_y),
+            (text_x, label_y + 10),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,
             color,
@@ -426,7 +426,7 @@ def draw_frame(frame, detections, expected_tags, selected_id, status_lines):
         cv2.putText(
             frame,
             raw_lateral_text,
-            (text_x, label_y + 25),
+            (text_x, label_y + 30),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.42,
             COLOR_TEXT,
