@@ -625,7 +625,7 @@ def main():
 
     imu_ready = False
     motors_enabled = False
-    serial_enabled = True
+    serial_enabled = False
 
     try:
         if serial_enabled:
