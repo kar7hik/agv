@@ -261,31 +261,31 @@ def tag_pose(tag):
     return t, R
 
 
-def center_pose(tag, tag_lookup):
-    tag_id = int(tag.tag_id)
-    tag_info = tag_lookup.get(tag_id)
+# def center_pose(tag, tag_lookup):
+#     tag_id = int(tag.tag_id)
+#     tag_info = tag_lookup.get(tag_id)
 
-    position = tag_info["position"]
-    helper_x_m, helper_y_m = HELPER_OFFSETS_M[position]
+#     position = tag_info["position"]
+#     helper_x_m, helper_y_m = HELPER_OFFSETS_M[position]
 
-    # Offset from central tag to detected helper tag,
-    # expressed in the tag/landmark frame.
-    offset = np.array([helper_x_m, helper_y_m, 0.0], dtype=np.float64)
-    t, R = tag_pose(tag)
+#     # Offset from central tag to detected helper tag,
+#     # expressed in the tag/landmark frame.
+#     offset = np.array([helper_x_m, helper_y_m, 0.0], dtype=np.float64)
+#     t, R = tag_pose(tag)
 
-    # Landmark-grid frame -> Camera frame.
-    R_camera_grid = R @ GRID_TO_TAG_R
+#     # Landmark-grid frame -> Camera frame.
+#     R_camera_grid = R @ GRID_TO_TAG_R
 
-    # Center-to-helper displacement expressed in camera coordinates.
-    offset_camera = R_camera_grid @ offset
+#     # Center-to-helper displacement expressed in camera coordinates.
+#     offset_camera = R_camera_grid @ offset
 
-    # detected helper = center + rotate offset
-    #
-    # Therefore:
-    # center = detected helper - rotate offset
-    center = t - offset_camera
+#     # detected helper = center + rotate offset
+#     #
+#     # Therefore:
+#     # center = detected helper - rotate offset
+#     center = t - offset_camera
 
-    return center
+#     return center
 
 
 # Heading Computation:
@@ -326,7 +326,6 @@ def lateral_error(tag, tag_lookup):
 
 
 def calculate_errors(tag, tag_lookup, landmarks):
-    center = center_pose(tag, tag_lookup)
     lateral_error_m = lateral_error(tag, tag_lookup)
     robot_heading = robot_heading_deg(tag, tag_lookup, landmarks)
     heading_error_deg = normalize_angle_deg(PATH_HEADING_DEG - robot_heading)
