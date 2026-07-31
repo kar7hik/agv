@@ -752,6 +752,17 @@ def main():
                     else:
                         print("Failed to enable motors.")
 
+            elif key == ord("t") or key == ord("T"):
+                status(ser)
+
+            elif key == ord("z") or key == ord("Z"):
+                if imu_ready:
+                    zero_imu(ser)
+                    print("IMU zeroed.")
+
+                else:
+                    print("IMU not ready.")
+
             elif key == ord("f") or key == ord("F"):
                 stop(ser)
 
