@@ -165,7 +165,7 @@ def zero_imu(ser):
     return send_command_wait_ack(ser, "ZERO_IMU")
 
 
-def sync_heading(ser, heading_deg):
+def sync(ser, heading_deg):
     command = f"SYNC {heading_deg:.2f}"
     return send_command_wait_ack(ser, command)
 
