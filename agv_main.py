@@ -803,12 +803,24 @@ def main():
                         print("SYNC rejected. DRIVE cancelled.")
 
     finally:
+        if ser is not None:
+            try:
+                print("Stopping and disabling robot.")
+                stop(ser)
+                motor_off(ser)
+                ser.close()
+
+            except Exception as exc:
+                print(f"Failed to stop robot: {exc}")
+
         if camera is not None:
             try:
                 camera.stop()
 
             except Exception as exc:
                 print(f"Failed to stop camera: {exc}")
+
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
