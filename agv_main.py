@@ -143,7 +143,11 @@ def open_camera():
                 FRAME_WIDTH,
                 FRAME_HEIGHT,
             ),
-        }
+        },
+        transform=Transform(
+            hflip=1,
+            vflip=1,
+        ),
     )
 
     camera.configure(configuration)
