@@ -3,6 +3,7 @@ import numpy as np
 import math
 import json
 import time
+import serial
 
 from pupil_apriltags import Detector
 from picamera2 import Picamera2
@@ -55,9 +56,21 @@ HEADING_TRIM_DEG = 0.0
 COLOR_IMAGE_CENTER = (180, 180, 180)
 COLOR_EXPECTED_TAG = (0, 220, 0)
 COLOR_SELECTED_TAG = (0, 255, 255)
-COLOR_OTHER_TAG = (255, 0, 255)
+COLOR_OTHER_TAG = (0, 220, 220)
 COLOR_CENTER_LINE = (255, 180, 0)
 COLOR_TEXT = (255, 255, 255)
+
+
+# Serial Parameters:
+SERIAL_PORT = "/dev/ttyUSB0"
+SERIAL_BAUD = 115200
+
+READ_TIMEOUT_S = 0.1
+ACK_TIMEOUT_S = 0.5
+CAL_TIMEOUT_S = 20.0
+
+# Drive Parameters:
+DRIVE_SPEED_MPS = 0.030
 
 
 def rotation_z_deg(angle_deg):
@@ -72,6 +85,113 @@ def rotation_z_deg(angle_deg):
 
 
 GRID_TO_TAG_R = rotation_z_deg(GRID_TO_TAG_YAW_DEG)
+
+
+def open_serial():
+    ser = serial.Serial(SERIAL_PORT, SERIAL_BAUD, timeout=READ_TIMEOUT_S)
+    time.sleep(2.0)
+    ser.reset_input_buffer()
+    ser.reset_output_buffer()
+    return ser
+
+
+def read_line(ser):
+    line = ser.readline().decode("utf-8", errors="ignore").strip()
+    if line == "":
+        return None
+    return line
+
+
+def clear_serial_buffer(ser):
+    while ser.in_waiting > 0:
+        line = read_line(ser)
+        if line is not None:
+            print(f"RX: {line}")
+
+
+def send_line(ser, line):
+    print(f"TX: {line}")
+    ser.write((line + "\n").encode("utf-8"))
+    ser.flush()
+
+
+def wait_for_ack(ser, timeout=ACK_TIMEOUT_S):
+    deadline = time.monotonic() + timeout
+
+    while time.monotonic() < deadline:
+        line = read_line(ser)
+        if line is None:
+            continue
+
+        print(f"RX: {line}")
+
+        if line.startswith("ACK"):
+            return True
+
+        if line.startswith("ERR") or line.startswith("FAULT"):
+            return False
+
+    print("RX: ACK timeout")
+    return False
+
+
+def send_command_wait_ack(ser, command, timeout=ACK_TIMEOUT_S):
+    send_line(ser, command)
+    return wait_for_ack(ser, timeout)
+
+
+# Robot Commands
+def ping(ser):
+    return send_command_wait_ack(ser, "PING")
+
+
+def motor_on(ser):
+    return send_command_wait_ack(ser, "MOTOR_ON")
+
+
+def motor_off(ser):
+    return send_command_wait_ack(ser, "MOTOR_OFF")
+
+
+def stop(ser):
+    return send_command_wait_ack(ser, "STOP")
+
+
+def cal_imu(ser):
+    return send_command_wait_ack(ser, "CAL_IMU", timeout=CAL_TIMEOUT_S)
+
+
+def zero_imu(ser):
+    return send_command_wait_ack(ser, "ZERO_IMU")
+
+
+def sync_heading(ser, heading_deg):
+    command = f"SYNC {heading_deg:.2f}"
+    return send_command_wait_ack(ser, command)
+
+
+def drive(ser, velocity_mps, path_heading_deg, lateral_error_m):
+    command = f"DRIVE {velocity_mps:.4f} {path_heading_deg:.4f} {lateral_error_m:.4f}"
+    return send_command_wait_ack(ser, command)
+
+
+def status(ser, timeout=1.0):
+    send_line(ser, "STATUS")
+
+    deadline = time.monotonic() + timeout
+
+    while time.monotonic() < deadline:
+        line = read_line(ser)
+        if line is None:
+            continue
+
+        print(f"RX: {line}")
+
+        if line.startswith("STATUS"):
+            return line
+
+    print("RX: STATUS timeout")
+    return None
 
 
 # Map Loading and Lookups:
@@ -494,8 +614,21 @@ def draw_frame(frame, detections, expected_tags, selected_id, status_lines):
 
 def main():
     camera = None
+    ser = None
+
+    imu_ready = False
+    motors_enabled = False
 
     try:
+        ser = open_serial()
+        print("Serial port ready.")
+        clear_serial_buffer(ser)
+
+        if not ping(ser):
+            raise RuntimeError("ESP32 did not acknowledge PING.")
+
+        print("ESP32 communication ready.")
+
         map_data = load_map(MAP_FILE)
         landmarks, tag_lookup = build_lookups(map_data)
 
@@ -522,6 +655,18 @@ def main():
             heading_error = None
 
             status_lines = [f"Expected center: {EXPECTED_ID}"]
+
+            if motors_enabled:
+                status_lines.append("Motors: ENABLED")
+
+            else:
+                status_lines.append("Motors: DISABLED")
+
+            if imu_ready:
+                status_lines.append("IMU: READY")
+
+            else:
+                status_lines.append("IMU: NOT READY")
 
             if best is not None:
                 selected_id = int(best.tag_id)
@@ -563,6 +708,99 @@ def main():
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q") or key == ord("Q"):
                 break
+
+            elif key == ord("p") or key == ord("P"):
+                ping(ser)
+
+            elif key == ord("c") or key == ord("C"):
+                print("Preparing for IMU calibration...")
+                stop_ok = stop(ser)
+                motor_off_ok = motor_off(ser)
+
+                if motor_off_ok:
+                    motors_enabled = False
+
+                if not stop_ok or not motor_off_ok:
+                    print("Failed to stop motors before IMU calibration.")
+
+                else:
+                    print("Keep the robot completely stationary...")
+                    calibration_ok = calibrate_imu(ser)
+
+                    if not calibration_ok:
+                        imu_ready = False
+                        print("IMU calibration failed.")
+
+                    else:
+                        zero_ok = zero_imu(ser)
+                        imu_ready = zero_ok
+
+                        if zero_ok:
+                            print("IMU calibration complete.")
+                        else:
+                            print("IMU zeroing failed.")
+
+            elif key == ord("m") or key == ord("M"):
+                if not imu_ready:
+                    print("Motors not enabled. Enable IMU first.")
+
+                else:
+                    motors_enabled = motor_on(ser)
+
+                    if motors_enabled:
+                        print("Motors enabled.")
+                    else:
+                        print("Failed to enable motors.")
+
+            elif key == ord("f") or key == ord("F"):
+                stop(ser)
+
+                if motor_off(ser):
+                    motors_enabled = False
+                    print("Motors disabled.")
+
+            elif key == ord("s") or key == ord("S"):
+                if best is None:
+                    print("SYNC rejected: no usable tag")
+
+                elif robot_heading is None:
+                    print("SYNC rejected: no heading")
+
+                else:
+                    sync_ok = sync(ser, robot_heading)
+
+                    if sync_ok:
+                        print("SYNC OK")
+                    else:
+                        print("SYNC rejected")
+
+            elif key == ord("d") or key == ord("D"):
+                if not imu_ready:
+                    print("DRIVE rejected: IMU not ready")
+
+                elif not motors_enabled:
+                    print("DRIVE rejected: motors not enabled")
+
+                elif best is None:
+                    print("DRIVE rejected: no usable tag")
+
+                elif lateral_error_m is None or robot_heading is None:
+                    print("DRIVE rejected: Observation is incomplete")
+
+                else:
+                    sync_ok = sync(ser, robot_heading)
+
+                    if sync_ok:
+                        drive_ok = drive(
+                            ser, DRIVE_SPEED_MPS, PATH_HEADING_DEG, lateral_error_m
+                        )
+
+                        if drive_ok:
+                            print("DRIVE OK")
+                        else:
+                            print("DRIVE rejected")
+                    else:
+                        print("SYNC rejected. DRIVE cancelled.")
 
     finally:
         if camera is not None:

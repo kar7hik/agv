@@ -39,14 +39,6 @@ HELPER_OFFSETS_M = {
     "south_east": (+0.015, -0.015),
 }
 
-# Serial Parameters
-SERIAL_PORT = "/dev/ttyUSB0"
-SERIAL_BAUD = 115200
-
-READ_TIMEOUT_S = 0.1
-ACK_TIMEOUT_S = 0.5
-CAL_TIMEOUT_S = 20.0
-
 
 # Drive Parameters
 DRIVE_SPEED_MPS = 0.030
@@ -58,6 +50,17 @@ COLOR_UNEXPECTED_TAG = (0, 0, 255)
 COLOR_CENTER_LINE = (255, 180, 0)
 COLOR_HEADING_ARROW = (0, 255, 255)
 COLOR_TEXT = (255, 255, 255)
+
+
+# Serial Parameters
+SERIAL_PORT = "/dev/ttyUSB0"
+SERIAL_BAUD = 115200
+
+READ_TIMEOUT_S = 0.1
+ACK_TIMEOUT_S = 0.5
+CAL_TIMEOUT_S = 20.0
+
+
 
 
 def open_serial():
