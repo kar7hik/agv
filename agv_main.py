@@ -296,7 +296,7 @@ def calculate_errors(tag, tag_lookup, landmarks):
     center = center_pose(tag, tag_lookup)
     lateral_error_m = LATERAL_SIGN * float(center[0])
     robot_heading = robot_heading_deg(tag, tag_lookup, landmarks)
-    heading_error_deg = normalize_angle_deg(PATH_HEADING_DEG - robot_heading)
+    heading_error_deg = normalize_angle_deg(PATH_HEADING_DEG - float(robot_heading))
 
     return lateral_error_m, robot_heading, heading_error_deg
 
