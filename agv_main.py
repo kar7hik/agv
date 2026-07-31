@@ -392,7 +392,7 @@ def draw_frame(frame, detections, expected_tags, selected_id, status_lines):
         tag_top = int(np.min(corners[:, 1]))
 
         text_x = max(5, tag_left + 15)
-        label_y = max(18, tag_top + 15)
+        label_y = max(18, tag_top - 8)
 
         label = f"ID:{tag_id}"
 
@@ -426,7 +426,7 @@ def draw_frame(frame, detections, expected_tags, selected_id, status_lines):
         cv2.putText(
             frame,
             raw_lateral_text,
-            (text_x, label_y + 18),
+            (text_x, label_y + 25),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.42,
             COLOR_TEXT,
