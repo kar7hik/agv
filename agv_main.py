@@ -48,7 +48,7 @@ HELPER_OFFSETS_M = {
 }
 
 
-LATERAL_SIGN = -1.0
+LATERAL_SIGN = 1.0
 HEADING_SIGN = -1.0
 HEADING_OFFSET_DEG = 0.0
 
@@ -56,7 +56,7 @@ HEADING_OFFSET_DEG = 0.0
 COLOR_IMAGE_CENTER = (180, 180, 180)
 COLOR_EXPECTED_TAG = (0, 220, 0)
 COLOR_SELECTED_TAG = (0, 255, 255)
-COLOR_OTHER_TAG = (0, 0, 255)
+COLOR_OTHER_TAG = (255, 0, 255)
 COLOR_CENTER_LINE = (255, 180, 0)
 COLOR_TEXT = (255, 255, 255)
 
@@ -391,7 +391,7 @@ def draw_frame(frame, detections, expected_tags, selected_id, status_lines):
         tag_left = int(np.min(corners[:, 0]))
         tag_top = int(np.min(corners[:, 1]))
 
-        text_x = max(5, tag_left)
+        text_x = max(5, tag_left + 2)
         label_y = max(18, tag_top - 8)
 
         label = f"ID:{tag_id}"
@@ -412,16 +412,16 @@ def draw_frame(frame, detections, expected_tags, selected_id, status_lines):
 
         if tag.pose_t is not None:
             raw_lateral_mm = float(tag.pose_t[0][0]) * 1000.0
-            raw_lateral_text = f"Tag X: {raw_lateral_mm:.2f} mm"
+            raw_lateral_text = f"Lat: {raw_lateral_mm:.2f} mm"
 
         else:
-            raw_lateral_text = "Tag X: N/A"
+            raw_lateral_text = "Lat: N/A"
 
         if tag.pose_R is not None:
-            yaw_text = f"Tag Yaw: {tag_yaw_deg(tag):+.2f} deg"
+            yaw_text = f"Yaw: {tag_yaw_deg(tag):+.2f} deg"
 
         else:
-            yaw_text = "Tag Yaw: N/A"
+            yaw_text = "Yaw: N/A"
 
         cv2.putText(
             frame,
@@ -451,7 +451,7 @@ def draw_frame(frame, detections, expected_tags, selected_id, status_lines):
             line,
             (10, 25 + index * 22),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
+            0.35,
             COLOR_SELECTED_TAG,
             1,
             cv2.LINE_AA,
@@ -489,10 +489,7 @@ def main():
             robot_heading = None
             heading_error = None
 
-            status_lines = [
-                f"Expected center: {EXPECTED_ID}",
-                f"Visible tags: {len(detections)}",
-            ]
+            status_lines = [f"Expected center: {EXPECTED_ID}"]
 
             if best is not None:
                 selected_id = int(best.tag_id)
@@ -501,7 +498,6 @@ def main():
                 )
 
                 position = tag_lookup[selected_id]["position"]
-                status_lines.append(f"Selected: {selected_id} ({position})")
                 status_lines.append(
                     f"Central Lateral error: {lateral_error_m * 1000.0:.2f} mm"
                 )
