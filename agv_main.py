@@ -70,7 +70,7 @@ ACK_TIMEOUT_S = 0.5
 CAL_TIMEOUT_S = 20.0
 
 # Drive Parameters:
-DRIVE_SPEED_MPS = 0.05
+DRIVE_SPEED_MPS = 0.03
 
 
 def rotation_z_deg(angle_deg):
