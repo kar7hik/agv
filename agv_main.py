@@ -791,8 +791,8 @@ def main():
                         print("SYNC rejected: no heading")
 
                     else:
-                        print(f"SYNC to {robot_heading:.2f} deg")
-                        sync_ok = sync(ser, robot_heading)
+                        print(f"SYNC to {heading_error:.2f} deg")
+                        sync_ok = sync(ser, heading_error)
 
                         if sync_ok:
                             print("SYNC OK")
@@ -816,7 +816,7 @@ def main():
                         print("DRIVE rejected: Observation is incomplete")
 
                     else:
-                        sync_ok = sync(ser, robot_heading)
+                        sync_ok = sync(ser, heading_error)
 
                         if sync_ok:
                             print(
