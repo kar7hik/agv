@@ -102,7 +102,7 @@ def build_lookups(map_data):
 
                 raise ValueError(
                     f"Tag ID: {tag_id} is used by both "
-                    f"landmark {previous['landmark_id']} and landmark {landmark_id}."
+                    f"landmark {previous} and landmark {landmark_id}."
                 )
 
             tags[tag_id] = {
@@ -117,13 +117,13 @@ def get_expected_tags(landmarks, expected_id):
     landmark = landmarks.get(expected_id)
 
     if landmark is None:
-        raise valueError(f"Expected landmark {expected_id} is not present in the map.")
+        raise ValueError(f"Expected landmark {expected_id} is not present in the map.")
 
     landmark_tags = landmark["tags"]
     center_id = int(landmark_tags["center"])
 
     if center_id != expected_id:
-        raise valueError(
+        raise ValueError(
             f"Landmark {expected_id} uses center tag {center_id}. "
             f"Landmark ID and Center tag ID should match."
         )
@@ -288,7 +288,7 @@ def robot_heading_deg(tag, tag_lookup, landmarks):
         map_heading_deg + HEADING_SIGN * tag_yaw + HEADING_OFFSET_DEG
     )
 
-    return robot_heading_deg
+    return robot_heading
 
 
 # Lateral and Heading Errors:
@@ -296,7 +296,7 @@ def calculate_errors(tag, tag_lookup, landmarks):
     center = center_pose(tag, tag_lookup)
     lateral_error_m = LATERAL_SIGN * float(center[0])
     robot_heading = robot_heading_deg(tag, tag_lookup, landmarks)
-    heading_error_deg = normalize_angle_deg(PATH_HEADING_DEG - float(robot_heading))
+    heading_error_deg = normalize_angle_deg(PATH_HEADING_DEG - robot_heading)
 
     return lateral_error_m, robot_heading, heading_error_deg
 
