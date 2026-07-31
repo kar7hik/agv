@@ -653,6 +653,7 @@ def main():
             lateral_error_m = None
             robot_heading = None
             heading_error = None
+            driving = False
 
             status_lines = [f"Expected center: {EXPECTED_ID}"]
 
@@ -767,6 +768,7 @@ def main():
                 stop(ser)
 
                 if motor_off(ser):
+                    driving = False
                     motors_enabled = False
                     print("Motors disabled.")
 
@@ -786,6 +788,9 @@ def main():
                         print("SYNC rejected")
 
             elif key == ord("d") or key == ord("D"):
+                if driving:
+                    print("DRIVE rejected: already driving")
+
                 if not imu_ready:
                     print("DRIVE rejected: IMU not ready")
 
@@ -807,6 +812,7 @@ def main():
                         )
 
                         if drive_ok:
+                            driving = True
                             print("DRIVE OK")
                         else:
                             print("DRIVE rejected")
