@@ -688,6 +688,7 @@ def send_keyboard_commands(ser, imu_ready, motors_enabled, best, lateral_error_m
             print("SYNC rejected: no heading")
 
         else:
+            print(f"SYNC to {robot_heading:.2f} deg")
             sync_ok = sync(ser, robot_heading)
 
             if sync_ok:
@@ -715,6 +716,9 @@ def send_keyboard_commands(ser, imu_ready, motors_enabled, best, lateral_error_m
             sync_ok = sync(ser, robot_heading)
 
             if sync_ok:
+                print(
+                    f"DRIVE_SPEED_MPS={DRIVE_SPEED_MPS} PATH_HEADING_DEG={PATH_HEADING_DEG} lateral_error_m={lateral_error_m}"
+                )
                 drive_ok = drive(
                     ser, DRIVE_SPEED_MPS, PATH_HEADING_DEG, lateral_error_m
                 )
@@ -734,7 +738,7 @@ def main():
 
     imu_ready = False
     motors_enabled = False
-    serial_enabled = False
+    serial_enabled = True
 
     try:
         if serial_enabled:
