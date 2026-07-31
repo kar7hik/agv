@@ -725,7 +725,7 @@ def main():
 
                 else:
                     print("Keep the robot completely stationary...")
-                    calibration_ok = calibrate_imu(ser)
+                    calibration_ok = cal_imu(ser)
 
                     if not calibration_ok:
                         imu_ready = False
