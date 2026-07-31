@@ -624,7 +624,7 @@ void startDrive(float velocityMps, float pathHeadingDeg, float lateralErrorM) {
                                   MAX_LINEAR_VELOCITY_MPS);
 
     drivePathHeadingDeg = normalizeAngleDeg(pathHeadingDeg);
-    driveLateralErrorM = -lateralErrorM;
+    driveLateralErrorM = lateralErrorM;
 
     /*
     robotHeadingDeg() has already been synchronized
@@ -798,6 +798,7 @@ void processCommand(char *line) {
 
     if (!strcmp(command, "PING")) {
         Serial.println("ACK");
+        printStatus();
         return;
     }
 
@@ -809,18 +810,21 @@ void processCommand(char *line) {
     if (!strcmp(command, "MOTOR_ON")) {
         motorOn();
         Serial.println("ACK");
+        printStatus();
         return;
     }
 
     if (!strcmp(command, "MOTOR_OFF")) {
         motorOff();
         Serial.println("ACK");
+        printStatus();
         return;
     }
 
     if (!strcmp(command, "STOP")) {
         stopImmediate();
         Serial.println("ACK");
+        printStatus();
         return;
     }
 
@@ -833,6 +837,7 @@ void processCommand(char *line) {
         }
 
         Serial.println("ACK");
+        printStatus();
         return;
     }
 
@@ -844,6 +849,7 @@ void processCommand(char *line) {
 
         zeroImuHeading();
         Serial.println("ACK");
+        printStatus();
         return;
     }
 
@@ -863,6 +869,7 @@ void processCommand(char *line) {
         const float trueHeadingDeg = atof(headingString);
         syncHeadingFromTag(trueHeadingDeg);
         Serial.println("ACK");
+        printStatus();
         return;
     }
 
@@ -917,6 +924,7 @@ void processCommand(char *line) {
             lateralErrorM);
 
         Serial.println("ACK");
+        printStatus();
         return;
     }
 
@@ -989,6 +997,6 @@ void loop() {
     readCommand();
     updateImu();
     updateDriveControl();
-    updateStatusOutput();
+    // updateStatusOutput();
     updateMotionControl();
 }
