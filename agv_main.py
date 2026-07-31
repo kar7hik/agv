@@ -283,9 +283,9 @@ def robot_heading_deg(tag, tag_lookup, landmarks):
 
     map_heading_deg = float(landmarks[landmark_id].get("heading_offset_deg", 0.0))
 
-    tag_yaw_deg = tag_yaw_deg(tag)
-    robot_heading_deg = normalize_angle_deg(
-        map_heading_deg + HEADING_SIGN * tag_yaw_deg + HEADING_OFFSET_DEG
+    tag_yaw = tag_yaw_deg(tag)
+    robot_heading = normalize_angle_deg(
+        map_heading_deg + HEADING_SIGN * tag_yaw + HEADING_OFFSET_DEG
     )
 
     return robot_heading_deg
