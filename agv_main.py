@@ -342,7 +342,7 @@ def draw_frame(frame, detections, expected_tags, selected_id, status_lines):
     for tag in detections:
         tag_id = int(tag.tag_id)
 
-        corners = np.rint(tag.corners).astype(int32)
+        corners = np.rint(tag.corners).astype(np.int32)
         center = (int(round(tag.center[0])), int(round(tag.center[1])))
 
         is_selected = selected_id is not None and selected_id == tag_id
