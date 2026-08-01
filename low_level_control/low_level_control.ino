@@ -9,6 +9,14 @@ constexpr size_t COMMAND_BUFFER_SIZE = 128;
 char commandBuffer[COMMAND_BUFFER_SIZE];
 size_t commandIndex = 0;
 
+// Telemetry:
+constexpr uint32_t MIN_TELEMETRY_PERIOD_MS = 100;
+constexpr uint32_t MAX_TELEMETRY_PERIOD_MS = 60000;
+
+uint32_t telemetryPeriodUs = 0;
+uint32_t lastTelemetryTimeUs = 0;
+
+
 // Motor Pins
 constexpr uint8_t LEFT_STEP_PIN = 16;
 constexpr uint8_t LEFT_DIR_PIN = 26;
@@ -106,19 +114,64 @@ constexpr float LATERAL_CORRECTION_DISTANCE_M = 0.5625f;
 // Prevent an excessive steering angle from a large/noisy tag error.
 constexpr float MAX_DRIVE_HEADING_OFFSET_DEG = 15.0f;
 
-bool driveActive = false;
+
 
 float driveVelocityMps = 0.0f;
 float drivePathHeadingDeg = 0.0f;
 
 float driveLateralErrorM = 0.0f;
-float driveInitialHeadingErrorDeg = 0.0f;
 
 // Current heading offset produced by the cubic trajectory.
 float driveHeadingOffsetDeg = 0.0f;
 
 uint32_t driveStartLeftPulseCount = 0;
 uint32_t driveStartRightPulseCount = 0;
+
+// Turn Control:
+constexpr float TURN_HEADING_KP = 1.5f;
+constexpr float DEFAULT_TURN_MAX_W_RAD_S = 0.08f;
+
+constexpr float TURN_HEADING_TOLERANCE_DEG = 0.5f;
+constexpr float TURN_STOPPED_W_RAD_S = 0.01f;
+constexpr uint32_t TURN_SETTLE_TIME_US = 200000;
+
+
+
+float turnTargetHeadingDeg = 0.0f;
+float turnMaxAngularVelocityRadS = DEFAULT_TURN_MAX_W_RAD_S;
+uint32_t turnSettledSinceUs = 0;
+
+// Align Control:
+constexpr float DEFAULT_ALIGN_MAX_W_RAD_S = 0.04f;
+
+// Move Control:
+constexpr float MOVE_HEADING_KP = 1.5f;
+constexpr float MOVE_MAX_W_RAD_S = 0.08f;
+
+constexpr float MOVE_DISTANCE_TOLERANCE_M = 0.002f;
+
+float moveTargetDistanceM = 0.0f;
+float movePathHeadingDeg = 0.0f;
+float moveMaxVelocityMps = 0.0f;
+
+int8_t moveDirection = 1;
+
+uint32_t moveStartLeftPulseCount = 0;
+uint32_t moveStartRightPulseCount = 0;
+
+bool moveStopping = false;
+
+
+enum class Operation {
+    IDLE,
+    DRIVE,
+    TURN,
+    ALIGN,
+    MOVE,
+    STOPPING
+};
+
+Operation activeOperation = Operation::IDLE;
 
 
 // Utility Functions:
@@ -169,6 +222,26 @@ float normalizeAngleDeg(float angleDeg) {
     }
 
     return angleDeg;
+}
+
+
+const char *operationName(Operation operation) {
+    switch (operation) {
+        case Operation::IDLE:
+            return "IDLE";
+        case Operation::DRIVE:
+            return "DRIVE";
+        case Operation::TURN:
+            return "TURN";
+        case Operation::ALIGN:
+            return "ALIGN";
+        case Operation::MOVE:
+            return "MOVE";
+        case Operation::STOPPING:
+            return "STOPPING";
+    }
+
+    return "UNKNOWN";
 }
 
 
@@ -424,14 +497,20 @@ void stopMotion() {
 }
 
 void stopImmediate() {
-    driveActive = false;
+    activeOperation = Operation::IDLE;
+
+    turnSettledSinceUs = 0;
 
     driveVelocityMps = 0.0f;
     drivePathHeadingDeg = 0.0f;
-
     driveLateralErrorM = 0.0f;
-    driveInitialHeadingErrorDeg = 0.0f;
     driveHeadingOffsetDeg = 0.0f;
+
+    moveTargetDistanceM = 0.0f;
+    movePathHeadingDeg = 0.0f;
+    moveMaxVelocityMps = 0.0f;
+    moveDirection = 1;
+    moveStopping = false;
 
     targetLinearVelocityMps = 0.0f;
     targetAngularVelocityRadS = 0.0f;
@@ -443,6 +522,137 @@ void stopImmediate() {
 
     stopMotion();
 }
+
+void startSmoothStop() {
+    // Cancel ownership of DRIVE, TURN, ALIGN, and MOVE operations:
+    // STOPPING is the new owner.
+    activeOperation = Operation::STOPPING;
+
+    // Prevent an old turn-settling timing from remaining active after a turn or alignment is interrupted:
+    turnSettledSinceUs = 0;
+
+    // Do not reset the current velocities:
+    // The smooth stop will be applied to the current velocities.
+    setMotionTarget(0.0f, 0.0f);
+}
+
+void updateMoveControl() {
+    if (activeOperation != Operation::MOVE) {
+        return;
+    }
+
+    // MOVE uses the IMU to hold an absolute heading.
+    // Therefore, motors and calibrated IMU are required.
+    if (!motorsEnabled || !imuReady || !imuCalibrated) {
+        stopImmediate();
+        Serial.println("ERR MOVE_ABORTED");
+        return;
+    }
+
+    // Once the target distance has been reached, MOVE enters its stopping phase.
+    if (moveStopping) {
+        // UpdateMotionControl disables itself when both current velocities reached zero.
+        if (motionControlEnabled) {
+            return;
+        }
+        stopImmediate();
+        Serial.println("DONE MOVE");
+        return;
+    }
+
+    const float travelledM = moveDistanceTravelledM();
+    const float remainingM = moveTargetDistanceM - travelledM;
+
+    // The requested distance has been reached.
+    // Begin the final controlled stop when the remaining distance enters the tolerance.
+    // Keep Operation::MOVE active while the common motion controller ramps both velocities to zero.
+    if (remainingM <= MOVE_DISTANCE_TOLERANCE_M) {
+        moveStopping = true;
+        setMotionTarget(0.0f, 0.0f);
+        return;
+    }
+
+    // Continuous braking velocity:
+    // v = sqrt(2 * a * remainingDistance)
+    // As remaining distance decreases, the maximum safe target velocity also decreases.
+    const float brakingVelocityMps = sqrt(2.0f * LINEAR_DECEL_MPS2 * remainingM);
+
+    // Use either the safe braking velocity or the requested maximum velocity. Whichever is smaller.
+    const float velocityMagnitudeMps = fminf(moveMaxVelocityMps, brakingVelocityMps);
+    const float commandedVelocityMps = static_cast<float>(moveDirection) * velocityMagnitudeMps;
+
+    /*
+    Differential-drive wheel velocities are:
+
+        left  = linear - angular * halfTrack
+        right = linear + angular * halfTrack
+
+    If angular velocity is too large compared with
+    linear velocity, one wheel can reverse.
+    */
+    const float halfTrackM = TRACK_WIDTH_M * 0.5f;
+
+    /*
+    Use the current ramped linear velocity rather than
+    only the requested target velocity.
+
+    This also protects the robot during acceleration,
+    when the target velocity may be high but the current
+    velocity is still close to zero.
+    */
+    const float currentTranslationMagnitudeMps = fabsf(currentLinearVelocityMps);
+
+    /*
+    Keep the rotational wheel component below 80% of
+    the current translational wheel velocity.
+
+    Therefore, the slower wheel retains at least
+    approximately 20% of the translation velocity.
+    */
+    const float maxAngularVelocityMps = currentTranslationMagnitudeMps * 0.8f / halfTrackM;
+
+
+    /*
+    Apply whichever angular limit is smaller:
+
+    - general MOVE angular limit
+    - translation-dependent limit
+    */
+    const float allowedAngularVelocityRadS = fminf(MOVE_MAX_W_RAD_S, maxAngularVelocityMps);
+
+
+
+    // Calculate the heading correction using the restricted angular velocity:
+    const float angularVelocityRadS = calculateHeadingAngularVelocityRadS(movePathHeadingDeg,
+                                                                          MOVE_HEADING_KP,
+                                                                          allowedAngularVelocityRadS);
+
+    // updateMotionControl will ramp the actual linera and angular velocities to the target values.
+    setMotionTarget(commandedVelocityMps, angularVelocityRadS);
+}
+
+
+void updateSmoothStop() {
+    if (activeOperation != Operation::STOPPING) {
+        return;
+    }
+
+    // updateMotionControl disables itself only after:
+    // - target linear velocity is zero
+    // - target angular velocity is zero
+    // - current linear velocity reaches zero
+    // - current angular velocity reaches zero
+    if (motionControlEnabled) {
+        return;
+    }
+
+    // The velocity controller has completed the stop.
+    // Reset the remaining motion state and report completion:
+    stopImmediate();
+
+    Serial.println("DONE STOP");
+}
+
 
 // Stop the step pulses and then disable the motors:
 void motorOff() {
@@ -572,6 +782,15 @@ void setMotionTarget(float linearVelocityMps, float angularVelocityRadS) {
 }
 
 
+float moveDistanceTravelledM() {
+    const uint32_t leftPulseDelta = leftPulseCount - moveStartLeftPulseCount;
+    const uint32_t rightPulseDelta = rightPulseCount - moveStartRightPulseCount;
+    const float averagePulseDelta = (static_cast<float>(leftPulseDelta) + static_cast<float>(rightPulseDelta)) * 0.5f;
+
+    return averagePulseDelta / PULSES_PER_METER;
+}
+
+
 float driveDistanceTravelledM() {
     const uint32_t leftPulseDelta = leftPulseCount - driveStartLeftPulseCount;
     const uint32_t rightPulseDelta = rightPulseCount - driveStartRightPulseCount;
@@ -583,18 +802,16 @@ float driveDistanceTravelledM() {
 float calculateDriveHeadingOffsetDeg(float progress) {
     const float s = clampFloat(progress, 0.0f, 1.0f);
 
+    /*
+    After the lateral-correction distance,
+    hold the absolute path heading directly.
+    */
     if (s >= 1.0f) {
         return 0.0f;
     }
 
-    const float initialHeadingErrorDeg = driveInitialHeadingErrorDeg * PI_F / 180.0f;
-
     const float lateralSlope = (driveLateralErrorM / LATERAL_CORRECTION_DISTANCE_M) * (6.0f * s * s - 6.0f * s);
-    // const float initialHeadingSlope = tanf(initialHeadingErrorDeg) * (3.0f * s * s - 4.0f * s + 1.0f);
-
-    // const float totalSlope = lateralSlope + initialHeadingSlope;
     const float headingOffsetDeg = atanf(lateralSlope) * 180.0f / PI_F;
-
     return clampFloat(headingOffsetDeg, -MAX_DRIVE_HEADING_OFFSET_DEG, MAX_DRIVE_HEADING_OFFSET_DEG);
 }
 
@@ -618,6 +835,21 @@ float calculateHeadingAngularVelocityRadS(float desiredHeadingDeg,
     return angularVelocityRadS;
 }
 
+
+void startMove(float distanceM, float pathHeadingDeg, float maxVelocityMps) {
+    moveDirection = distanceM >= 0.0f ? 1 : -1;
+    moveTargetDistanceM = fabsf(distanceM);
+    movePathHeadingDeg = normalizeAngleDeg(pathHeadingDeg);
+    moveMaxVelocityMps = clampFloat(fabsf(maxVelocityMps),
+                                    0.0f,
+                                    MAX_LINEAR_VELOCITY_MPS);
+
+    moveStartLeftPulseCount = leftPulseCount;
+    moveStartRightPulseCount = rightPulseCount;
+    moveStopping = false;
+    activeOperation = Operation::MOVE;
+}
+
 void startDrive(float velocityMps, float pathHeadingDeg, float lateralErrorM) {
     driveVelocityMps = clampFloat(velocityMps,
                                   -MAX_LINEAR_VELOCITY_MPS,
@@ -627,29 +859,19 @@ void startDrive(float velocityMps, float pathHeadingDeg, float lateralErrorM) {
     driveLateralErrorM = lateralErrorM;
 
     /*
-    robotHeadingDeg() has already been synchronized
-    using the accepted AprilTag heading.
-
-    This is the physical heading error relative to
-    the required segment direction.
-    */
-    driveInitialHeadingErrorDeg = normalizeAngleDeg(robotHeadingDeg() - drivePathHeadingDeg);
-
-    /*
     At progress zero, the cubic desired heading should
     equal the robot's current corrected heading.
     */
-    // driveHeadingOffsetDeg = driveInitialHeadingErrorDeg;
     driveHeadingOffsetDeg = 0.0f;
 
     // Begin measuring correction distance from this point.
     driveStartLeftPulseCount = leftPulseCount;
     driveStartRightPulseCount = rightPulseCount;
-    driveActive = true;
+    activeOperation = Operation::DRIVE;
 }
 
 void updateDriveControl() {
-    if (!driveActive) {
+    if (activeOperation != Operation::DRIVE) {
         return;
     }
 
@@ -724,6 +946,105 @@ void updateMotionControl() {
 }
 
 
+void startHeadingTurn(float targetHeadingDeg, float maxAngularVelocityRadS, Operation operation) {
+    turnTargetHeadingDeg = normalizeAngleDeg(targetHeadingDeg);
+    turnMaxAngularVelocityRadS = clampFloat(fabsf(maxAngularVelocityRadS),
+                                            0.0f,
+                                            MAX_ANGULAR_VELOCITY_RAD_S);
+
+    turnSettledSinceUs = 0;
+    activeOperation = operation;
+}
+
+
+
+void startTurn(float targetHeadingDeg, float maxAngularVelocityRadS) {
+    startHeadingTurn(targetHeadingDeg, maxAngularVelocityRadS, Operation::TURN);
+}
+
+void startAlign(float observedHeadingDeg, float targetHeadingDeg, float maxAngularVelocityRadS) {
+    // Correct the IMU reference using the absolute heading measure from the apriltag.
+    syncHeadingFromTag(normalizeAngleDeg(observedHeadingDeg));
+    startHeadingTurn(targetHeadingDeg, maxAngularVelocityRadS, Operation::ALIGN);
+}
+
+
+
+
+void updateTurnControl() {
+    const bool headingTurnActive = activeOperation == Operation::TURN || activeOperation == Operation::ALIGN;
+
+    if (!headingTurnActive) {
+        return;
+    }
+
+    // Turn cannot continue safely without
+    // - Motors enabled
+    // - IMU ready
+    // - IMU calibrated
+    if (!motorsEnabled || !imuReady || !imuCalibrated) {
+        const Operation failedOperation = activeOperation;
+        stopImmediate();
+
+        if (failedOperation == Operation::ALIGN) {
+            Serial.println("ERR ALIGN_ABORTED");
+        } else {
+            Serial.println("ERR TURN_ABORTED");
+        }
+
+
+        return;
+    }
+
+    const float headingErrorDeg = normalizeAngleDeg(turnTargetHeadingDeg - robotHeadingDeg());
+    // Outside the target tolerance:
+    // Continue rotating toward the target.
+    if (fabsf(headingErrorDeg) > TURN_HEADING_TOLERANCE_DEG) {
+        turnSettledSinceUs = 0;
+        const float angularVelocityRadS = calculateHeadingAngularVelocityRadS(turnTargetHeadingDeg,
+                                                                              TURN_HEADING_KP,
+                                                                              turnMaxAngularVelocityRadS);
+        setMotionTarget(0.0f, angularVelocityRadS);
+
+        return;
+    }
+
+    // The heading is inside tolerance.
+    // Command zero angular velocity and let updateMotionControl ramp it down.
+    setMotionTarget(0.0f, 0.0f);
+
+    const bool angularMotionStopped = fabsf(currentAngularVelocityRadS) <= TURN_STOPPED_W_RAD_S;
+
+    if (!angularMotionStopped) {
+        turnSettledSinceUs = 0;
+        return;
+    }
+
+    const uint32_t nowUs = micros();
+
+    // Start the settling timer when the robot first reaches both conditions:
+    // - The heading is inside tolerance.
+    // - The angular velocity nearly zero.
+    if (turnSettledSinceUs == 0) {
+        turnSettledSinceUs = nowUs;
+        return;
+    }
+
+    // Continue waiting until the robot has remained settled for the required duration.
+    if (nowUs - turnSettledSinceUs < TURN_SETTLE_TIME_US) {
+        return;
+    }
+
+    const Operation completedOperation = activeOperation;
+    stopImmediate();
+
+    if (completedOperation == Operation::ALIGN) {
+        Serial.println("DONE ALIGN");
+    } else {
+        Serial.println("DONE TURN");
+    }
+}
+
 void printStatus() {
     Serial.print("STATUS MOTOR=");
     Serial.print(motorsEnabled ? "ON" : "OFF");
@@ -735,8 +1056,7 @@ void printStatus() {
     Serial.print(imuCalibrated ? "YES" : "NO");
 
     Serial.print(" MODE=");
-    Serial.print(driveActive ? "DRIVE" : motionControlEnabled ? "MOTION"
-                                                              : "IDLE");
+    Serial.print(operationName(activeOperation));
 
     Serial.print(" RAW=");
     Serial.print(imuHeadingDeg, 2);
@@ -747,7 +1067,21 @@ void printStatus() {
     Serial.print(" HDG=");
     Serial.print(robotHeadingDeg(), 2);
 
-    if (driveActive) {
+    const bool headingTurnActive = activeOperation == Operation::TURN || activeOperation == Operation::ALIGN;
+
+    if (headingTurnActive) {
+        const float headingErrorDeg = normalizeAngleDeg(turnTargetHeadingDeg - robotHeadingDeg());
+        Serial.print(" TTGT=");
+        Serial.print(turnTargetHeadingDeg, 2);
+
+        Serial.print(" TERR=");
+        Serial.print(headingErrorDeg, 2);
+
+        Serial.print(" TMAXW=");
+        Serial.print(turnMaxAngularVelocityRadS, 3);
+    }
+
+    if (activeOperation == Operation::DRIVE) {
         const float distanceM = driveDistanceTravelledM();
         const float progress = clampFloat(distanceM / LATERAL_CORRECTION_DISTANCE_M,
                                           0.0f,
@@ -759,14 +1093,14 @@ void printStatus() {
         Serial.print(" PROGRESS=");
         Serial.print(progress, 2);
 
+        Serial.print(" DPHASE=");
+        Serial.print(progress < 1.0f ? "CORRECT" : "HOLD");
+
         Serial.print(" PATH=");
         Serial.print(drivePathHeadingDeg, 2);
 
         Serial.print(" LAT=");
         Serial.print(driveLateralErrorM, 4);
-
-        Serial.print(" IERR=");
-        Serial.print(driveInitialHeadingErrorDeg, 2);
 
         Serial.print(" HOFF=");
         Serial.print(driveHeadingOffsetDeg, 2);
@@ -808,6 +1142,47 @@ void processCommand(char *line) {
         return;
     }
 
+    if (!strcmp(command, "TELEMETRY")) {
+        char *periodString = strtok(nullptr, " ");
+
+        if (periodString == nullptr) {
+            Serial.println("ERR TELEMETRY");
+            return;
+        }
+
+        // Convert the input for valid integer
+        char *endPointer = nullptr;
+        const long periodMs = strtol(periodString, &endPointer, 10);
+
+        const bool invalidNumber = endPointer == periodString || *endPointer != '\0';
+
+        if (invalidNumber) {
+            Serial.println("ERR TELEMETRY");
+            return;
+        }
+
+        // Zero disables automatic telemetry.
+        if (periodMs == 0) {
+            telemetryPeriodUs = 0;
+            Serial.println("ACK");
+            return;
+        }
+
+        // Rejects negative periods, excessively frequent output and excessively long periods.
+        if (periodMs < static_cast<long>(MIN_TELEMETRY_PERIOD_MS) || periodMs > static_cast<long>(MAX_TELEMETRY_PERIOD_MS)) {
+            Serial.println("ERR TELEMETRY_PERIOD");
+            return;
+        }
+
+        telemetryPeriodUs = static_cast<uint32_t>(periodMs) * 1000UL;
+
+        // Restart timing from changes requested
+        lastTelemetryTimeUs = micros();
+
+        Serial.println("ACK");
+        return;
+    }
+
     if (!strcmp(command, "MOTOR_ON")) {
         motorOn();
         Serial.println("ACK");
@@ -824,6 +1199,28 @@ void processCommand(char *line) {
 
     if (!strcmp(command, "STOP")) {
         stopImmediate();
+        Serial.println("ACK");
+
+        return;
+    }
+
+    if (!strcmp(command, "STOP_SMOOTH")) {
+        if (activeOperation == Operation::STOPPING) {
+            Serial.println("ERR BUSY");
+            return;
+        }
+
+        // If the motors are disabled, or the robot is already completely idle,
+        // there is no ramped motion to complete.
+        const bool alreadyStopped = activeOperation == Operation::IDLE && !motionControlEnabled;
+
+        if (!motorsEnabled || alreadyStopped) {
+            stopImmediate();
+            Serial.println("ACK");
+            Serial.println("DONE STOP");
+            return;
+        }
+        startSmoothStop();
         Serial.println("ACK");
 
         return;
@@ -895,37 +1292,170 @@ void processCommand(char *line) {
             return;
         }
 
-        const float velocityMps =
-            atof(velocityString);
+        const float velocityMps = atof(velocityString);
+        const float pathHeadingDeg = atof(headingString);
+        const float lateralErrorM = atof(lateralErrorString);
 
-        const float pathHeadingDeg =
-            atof(headingString);
-
-        const float lateralErrorM =
-            atof(lateralErrorString);
-
-        /*
-    DRIVE with zero velocity performs a planned stop.
-    The normal motion profile handles deceleration.
-    */
-        if (fabsf(velocityMps) < 0.001f) {
-            driveActive = false;
-
-            setMotionTarget(
-                0.0f,
-                0.0f);
-
-            Serial.println("ACK");
+        /*  
+        DRIVE is never used as a stopping command.
+        STOP: Immediate stop
+        STOP_SMOOTH: Smooth stop
+        */
+        if (velocityMps <= 0.001f) {
+            Serial.println("ERR DRIVE_SPEED");
             return;
         }
 
-        startDrive(
-            velocityMps,
-            pathHeadingDeg,
-            lateralErrorM);
+        const bool startingDrive = activeOperation == Operation::IDLE && !motionControlEnabled;
+        const bool updatingDrive = activeOperation == Operation::DRIVE;
+
+        if (!startingDrive && !updatingDrive) {
+            Serial.println("ERR BUSY");
+            return;
+        }
+
+        startDrive(velocityMps, pathHeadingDeg, lateralErrorM);
 
         Serial.println("ACK");
 
+        return;
+    }
+
+    if (!strcmp(command, "MOVE")) {
+        char *distanceString = strtok(nullptr, " ");
+        char *headingString = strtok(nullptr, " ");
+        char *velocityString = strtok(nullptr, " ");
+
+        if (distanceString == nullptr
+            || headingString == nullptr
+            || velocityString == nullptr) {
+            Serial.println("ERR MOVE");
+            return;
+        }
+
+        if (!motorsEnabled) {
+            Serial.println("ERR MOTOR_OFF");
+            return;
+        }
+
+        if (!imuReady || !imuCalibrated) {
+            Serial.println("ERR IMU_NOT_READY");
+            return;
+        }
+
+        // Do not begin a new MOVE while another high-level or low-level motion is active.
+        if (activeOperation != Operation::IDLE || motionControlEnabled) {
+            Serial.println("ERR BUSY");
+            return;
+        }
+
+        const float distanceM = atof(distanceString);
+        const float pathHeadingDeg = atof(headingString);
+        const float maxVelocityMps = atof(velocityString);
+
+        if (maxVelocityMps <= 0.0f) {
+            Serial.println("ERR MOVE_SPEED");
+            return;
+        }
+
+        // A negligible movement is accepted and completed without starting the motors
+        if (fabsf(distanceM) <= MOVE_DISTANCE_TOLERANCE_M) {
+            Serial.println("ACK");
+            Serial.println("DONE MOVE");
+            return;
+        }
+
+        startMove(distanceM, pathHeadingDeg, maxVelocityMps);
+
+        Serial.println("ACK");
+        return;
+    }
+
+    if (!strcmp(command, "TURN")) {
+        char *headingString = strtok(nullptr, " ");
+        char *maxAngluarVelocityString = strtok(nullptr, " ");
+
+        if (headingString == nullptr) {
+            Serial.println("ERR TURN");
+            return;
+        }
+
+        if (!motorsEnabled) {
+            Serial.println("ERR MOTOR_OFF");
+            return;
+        }
+
+        if (!imuReady || !imuCalibrated) {
+            Serial.println("ERR IMU_NOT_READY");
+            return;
+        }
+
+        if (activeOperation != Operation::IDLE) {
+            Serial.println("ERR BUSY");
+            return;
+        }
+
+        const float targetHeadingDeg = atof(headingString);
+        float maxAngularVelocityRadS = DEFAULT_TURN_MAX_W_RAD_S;
+
+        if (maxAngluarVelocityString != nullptr) {
+            maxAngularVelocityRadS = atof(maxAngluarVelocityString);
+        }
+
+        if (maxAngularVelocityRadS <= 0.0f) {
+            Serial.println("ERR TURN_SPEED");
+            return;
+        }
+
+        startTurn(targetHeadingDeg, maxAngularVelocityRadS);
+
+        Serial.println("ACK");
+
+
+        return;
+    }
+
+    if (!strcmp(command, "ALIGN")) {
+        char *observedHeadingString = strtok(nullptr, " ");
+        char *targetHeadingString = strtok(nullptr, " ");
+        char *maxAngularVelocityString = strtok(nullptr, " ");
+
+        if (observedHeadingString == nullptr || targetHeadingString == nullptr) {
+            Serial.println("ERR ALIGN");
+            return;
+        }
+
+        if (!motorsEnabled) {
+            Serial.println("ERR MOTOR_OFF");
+            return;
+        }
+
+        if (!imuReady || !imuCalibrated) {
+            Serial.println("ERR IMU_NOT_READY");
+            return;
+        }
+
+        if (activeOperation != Operation::IDLE) {
+            Serial.println("ERR BUSY");
+            return;
+        }
+
+        const float observedHeadingDeg = atof(observedHeadingString);
+        const float targetHeadingDeg = atof(targetHeadingString);
+        float maxAngularVelocityRadS = DEFAULT_ALIGN_MAX_W_RAD_S;
+
+        if (maxAngularVelocityString != nullptr) {
+            maxAngularVelocityRadS = atof(maxAngularVelocityString);
+        }
+
+        if (maxAngularVelocityRadS <= 0.0f) {
+            Serial.println("ERR ALIGN_SPEED");
+            return;
+        }
+
+        startAlign(observedHeadingDeg, targetHeadingDeg, maxAngularVelocityRadS);
+
+        Serial.println("ACK");
         return;
     }
 
@@ -965,15 +1495,19 @@ void readCommand() {
     }
 }
 
-constexpr uint32_t STATUS_PERIOD_US = 200000;
-uint32_t lastStatusTimeUs = 0;
 
-void updateStatusOutput() {
-    const uint32_t nowUs = micros();
-    if (nowUs - lastStatusTimeUs < STATUS_PERIOD_US) {
+void updateTelemetryOutput() {
+    // A zero period means automatic telemetry is disabled.
+    if (telemetryPeriodUs == 0) {
         return;
     }
-    lastStatusTimeUs = nowUs;
+
+    const uint32_t nowUs = micros();
+    if (nowUs - lastTelemetryTimeUs < telemetryPeriodUs) {
+        return;
+    }
+
+    lastTelemetryTimeUs = nowUs;
     printStatus();
 }
 
@@ -997,7 +1531,13 @@ void setup() {
 void loop() {
     readCommand();
     updateImu();
+
+    updateTurnControl();
     updateDriveControl();
-    updateStatusOutput();
+    updateMoveControl();
+
     updateMotionControl();
+    updateSmoothStop();
+
+    updateTelemetryOutput();
 }
